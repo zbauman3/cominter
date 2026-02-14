@@ -4,3 +4,8 @@
   - idf.py --port "/dev/tty.usbserial-575E0766721" flash monitor
 
 - Exit: `ctrl+t > x`
+- View partition
+  - `${IDF_PATH}/components/partition_table/gen_esp32part.py ./build/partition_table/partition-table.bin`
+- Flash NVS partition
+  - Create: `${IDF_PATH}/components/nvs_flash/nvs_partition_generator/nvs_partition_gen.py generate <INPUT>.csv <OUTPUT>.bin 0x6000`
+  - Flash: `parttool.py --port <PORT> write_partition --partition-name=nvs --input <INPUT>.bin`

@@ -41,8 +41,7 @@
 
 #define LISTEN_ALL_IF   EXAMPLE_MULTICAST_LISTEN_ALL_IF
 
-static const char *TAG = "multicast";
-static const char *V4TAG = "mcast-ipv4";
+static char *TAG = "INIT_MULTICAST";
 
 
 /* Add a socket, either IPV4-only or IPV6 dual mode, to the IPV4
@@ -55,21 +54,21 @@ static int socket_add_ipv4_multicast_group(int sock, bool assign_source_if)
     esp_netif_ip_info_t ip_info = { 0 };
     err = esp_netif_get_ip_info(get_example_netif(), &ip_info);
     if (err != ESP_OK) {
-        ESP_LOGE(V4TAG, "Failed to get IP address info. Error 0x%x", err);
+        ESP_LOGE(TAG, "Failed to get IP address info. Error 0x%x", err);
         goto err;
     }
     inet_addr_from_ip4addr(&iaddr, &ip_info.ip);
     // Configure multicast address to listen to
     err = inet_aton(MULTICAST_IPV4_ADDR, &imreq.imr_multiaddr.s_addr);
     if (err != 1) {
-        ESP_LOGE(V4TAG, "Configured IPV4 multicast address '%s' is invalid.", MULTICAST_IPV4_ADDR);
+        ESP_LOGE(TAG, "Configured IPV4 multicast address '%s' is invalid.", MULTICAST_IPV4_ADDR);
         // Errors in the return value have to be negative
         err = -1;
         goto err;
     }
     ESP_LOGI(TAG, "Configured IPV4 Multicast address %s", inet_ntoa(imreq.imr_multiaddr.s_addr));
     if (!IP_MULTICAST(ntohl(imreq.imr_multiaddr.s_addr))) {
-        ESP_LOGW(V4TAG, "Configured IPV4 multicast address '%s' is not a valid multicast address. This will probably not work.", MULTICAST_IPV4_ADDR);
+        ESP_LOGW(TAG, "Configured IPV4 multicast address '%s' is not a valid multicast address. This will probably not work.", MULTICAST_IPV4_ADDR);
     }
 
     if (assign_source_if) {
@@ -78,7 +77,7 @@ static int socket_add_ipv4_multicast_group(int sock, bool assign_source_if)
         err = setsockopt(sock, IPPROTO_IP, IP_MULTICAST_IF, &iaddr,
                          sizeof(struct in_addr));
         if (err < 0) {
-            ESP_LOGE(V4TAG, "Failed to set IP_MULTICAST_IF. Error %d", errno);
+            ESP_LOGE(TAG, "Failed to set IP_MULTICAST_IF. Error %d", errno);
             goto err;
         }
     }
@@ -86,7 +85,7 @@ static int socket_add_ipv4_multicast_group(int sock, bool assign_source_if)
     err = setsockopt(sock, IPPROTO_IP, IP_ADD_MEMBERSHIP,
                          &imreq, sizeof(struct ip_mreq));
     if (err < 0) {
-        ESP_LOGE(V4TAG, "Failed to set IP_ADD_MEMBERSHIP. Error %d", errno);
+        ESP_LOGE(TAG, "Failed to set IP_ADD_MEMBERSHIP. Error %d", errno);
         goto err;
     }
 
@@ -102,7 +101,7 @@ static int create_multicast_ipv4_socket(void)
 
     sock = socket(PF_INET, SOCK_DGRAM, IPPROTO_IP);
     if (sock < 0) {
-        ESP_LOGE(V4TAG, "Failed to create socket. Error %d", errno);
+        ESP_LOGE(TAG, "Failed to create socket. Error %d", errno);
         return -1;
     }
 
@@ -112,7 +111,7 @@ static int create_multicast_ipv4_socket(void)
     saddr.sin_addr.s_addr = htonl(INADDR_ANY);
     err = bind(sock, (struct sockaddr *)&saddr, sizeof(struct sockaddr_in));
     if (err < 0) {
-        ESP_LOGE(V4TAG, "Failed to bind socket. Error %d", errno);
+        ESP_LOGE(TAG, "Failed to bind socket. Error %d", errno);
         goto err;
     }
 
@@ -121,7 +120,7 @@ static int create_multicast_ipv4_socket(void)
     uint8_t ttl = MULTICAST_TTL;
     err = setsockopt(sock, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, sizeof(uint8_t));
     if (err < 0) {
-        ESP_LOGE(V4TAG, "Failed to set IP_MULTICAST_TTL. Error %d", errno);
+        ESP_LOGE(TAG, "Failed to set IP_MULTICAST_TTL. Error %d", errno);
         goto err;
     }
 
@@ -264,6 +263,35 @@ static void mcast_example_task(void *pvParameters)
 void app_main(void)
 {
     ESP_ERROR_CHECK(nvs_flash_init());
+
+    esp_err_t err = ESP_OK;
+    // Open the pre-filled NVS partition called "nvs"
+    ESP_LOGI(TAG, "Opening Non-Volatile Storage (NVS) handle");
+    nvs_handle_t my_handle;
+    err = nvs_open_from_partition("nvs", "device_info", NVS_READONLY, &my_handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Error (%s) opening NVS handle!\n", esp_err_to_name(err));
+        return;
+    }
+    ESP_LOGI(TAG, "The NVS handle successfully opened");
+
+    size_t str_len = 0;
+    err = nvs_get_str(my_handle, "name", NULL, &str_len);
+    ESP_ERROR_CHECK(err);
+    ESP_LOGI(TAG, "String length: %d", str_len);
+
+    // allocate memory for the string with the suffix "_MULTICAST"
+    char* str_val = (char*) malloc(strlen("_MULTICAST") + str_len);
+    err = nvs_get_str(my_handle, "name", str_val, &str_len);
+    ESP_ERROR_CHECK(err);
+    // append the suffix "_MULTICAST" to the string
+    strcat(str_val, "_MULTICAST");
+    ESP_LOGI(TAG, "String value: %s", str_val);
+    // point the TAG to the new string
+    TAG = str_val;
+    // Close
+    nvs_close(my_handle);
+
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 

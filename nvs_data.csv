@@ -1,0 +1,5 @@
+# Sample csv file
+key,type,encoding,value
+device_info,namespace,,
+# name,data,string,"BAD_BOY"
+name,data,string,"N00B"
