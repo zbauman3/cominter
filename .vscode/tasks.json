@@ -1,0 +1,57 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Monitor Device A",
+      "type": "shell",
+      "command": "source /Users/zanebauman/.espressif/tools/activate_idf_v5.5.2.sh && ${IDF_PATH}/tools/idf.py monitor --port /dev/tty.usbserial-575E0764921",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Monitor Device B",
+      "type": "shell",
+      "command": "source /Users/zanebauman/.espressif/tools/activate_idf_v5.5.2.sh && ${IDF_PATH}/tools/idf.py monitor --port /dev/tty.usbserial-575E0766721",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Monitor Both Devices",
+      "dependsOn": ["Monitor Device A", "Monitor Device B"],
+      "dependsOrder": "parallel",
+      "problemMatcher": []
+    },
+    {
+      "label": "Flash Device A",
+      "type": "shell",
+      "command": "source /Users/zanebauman/.espressif/tools/activate_idf_v5.5.2.sh && ${IDF_PATH}/tools/idf.py flash --port /dev/tty.usbserial-575E0764921",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Flash Device B",
+      "type": "esp-idf",
+      "command": "source /Users/zanebauman/.espressif/tools/activate_idf_v5.5.2.sh && ${IDF_PATH}/tools/idf.py flash --port /dev/tty.usbserial-575E0766721",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Flash Both Devices",
+      "dependsOn": ["Flash Device A", "Flash Device B"],
+      "dependsOrder": "parallel",
+      "problemMatcher": []
+    }
+  ]
+}
