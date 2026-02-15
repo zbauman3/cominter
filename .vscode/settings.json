@@ -12,5 +12,10 @@
     "--compile-commands-dir=/Users/zanebauman/udp_multicast/build"
   ],
   "idf.flashType": "UART",
-  "cSpell.words": ["cominter"]
+  "cSpell.words": ["cominter"],
+  "editor.defaultFormatter": "anysphere.cpptools",
+  "editor.formatOnSave": true,
+  "[c]": {
+    "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
+  }
 }

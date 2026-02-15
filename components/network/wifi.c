@@ -8,41 +8,20 @@
 
 static const char *TAG = "NETWORK:WIFI";
 
-static esp_err_t init_ip_info(esp_netif_ip_info_t **ip_info) {
-  if (*ip_info == NULL) {
-    ESP_LOGI(TAG, "Initializing IP info");
-    *ip_info = (esp_netif_ip_info_t *)malloc(sizeof(esp_netif_ip_info_t));
-    if (*ip_info == NULL) {
-      ESP_LOGE(TAG, "Failed to allocate memory for IP info");
-      return ESP_ERR_NO_MEM;
-    }
-    (*ip_info)->ip = (esp_ip4_addr_t) { 0 };
-    (*ip_info)->netmask = (esp_ip4_addr_t) { 0 };
-    (*ip_info)->gw = (esp_ip4_addr_t) { 0 };
-  }else{
-    ESP_LOGI(TAG, "IP info already initialized");
-  }
-  return ESP_OK;
-}
-
 // handles wifi events and updates the state accordingly
 static void event_handler(void *arg, esp_event_base_t event_base,
                           int32_t event_id, void *event_data) {
 
   if (event_base == IP_EVENT) {
-    esp_netif_ip_info_t **ip_info = (esp_netif_ip_info_t **)arg;
+    device_state_handle_t device_state_handle = (device_state_handle_t)arg;
 
     switch (event_id) {
     case IP_EVENT_STA_GOT_IP: {
       ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
       ESP_LOGD(TAG, "EVENT - IP_EVENT_STA_GOT_IP");
       ESP_LOGD(TAG, "IPV4 is: " IPSTR, IP2STR(&event->ip_info.ip));
-      if(init_ip_info(ip_info) == ESP_OK){
-        ESP_LOGI(TAG, "IP info initialized");
-        (*ip_info)->ip.addr = event->ip_info.ip.addr;
-        (*ip_info)->netmask.addr = event->ip_info.netmask.addr;
-        (*ip_info)->gw.addr = event->ip_info.gw.addr;
-      }
+      memcpy(device_state_handle->ip_info, &event->ip_info,
+             sizeof(esp_netif_ip_info_t));
       break;
     }
     case IP_EVENT_GOT_IP6: {
@@ -53,11 +32,9 @@ static void event_handler(void *arg, esp_event_base_t event_base,
     }
     case IP_EVENT_STA_LOST_IP: {
       ESP_LOGD(TAG, "EVENT - IP_EVENT_STA_LOST_IP");
-      if(init_ip_info(ip_info) == ESP_OK){
-        (*ip_info)->ip = (esp_ip4_addr_t) { 0 };
-        (*ip_info)->netmask = (esp_ip4_addr_t) { 0 };
-        (*ip_info)->gw = (esp_ip4_addr_t) { 0 };
-      }
+      device_state_handle->ip_info->ip = (esp_ip4_addr_t){0};
+      device_state_handle->ip_info->netmask = (esp_ip4_addr_t){0};
+      device_state_handle->ip_info->gw = (esp_ip4_addr_t){0};
       break;
     }
     default: {
@@ -97,19 +74,19 @@ static void event_handler(void *arg, esp_event_base_t event_base,
 
 // Using overview from:
 // https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/wifi.html#esp32-wi-fi-station-general-scenario
-esp_err_t wifi_init(esp_netif_ip_info_t **ip_info) {
+esp_err_t wifi_init(device_state_handle_t device_state_handle) {
   ESP_LOGD(TAG, "Starting WiFi connection to \"%s\"", CONFIG_WIFI_SSID);
 
   esp_err_t err = ESP_OK;
 
-  err = esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
-                                              &event_handler, ip_info);
+  err = esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler,
+                                   device_state_handle);
   if (err != ESP_OK) {
     return err;
   }
 
-  err = esp_event_handler_register(IP_EVENT, ESP_EVENT_ANY_ID,
-                                              &event_handler, ip_info);
+  err = esp_event_handler_register(IP_EVENT, ESP_EVENT_ANY_ID, &event_handler,
+                                   device_state_handle);
   if (err != ESP_OK) {
     return err;
   }

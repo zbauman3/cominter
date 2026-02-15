@@ -1,6 +1,7 @@
 #pragma once
 
 #include "esp_err.h"
-#include "esp_netif_types.h"
 
-esp_err_t wifi_init(esp_netif_ip_info_t **ip_info);
+#include "device/state.h"
+
+esp_err_t wifi_init(device_state_handle_t device_state_handle);
