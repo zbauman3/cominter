@@ -1,2 +1,4 @@
-idf_component_register(SRCS "udp_multicast_example_main.c"
-                    INCLUDE_DIRS ".")
+idf_component_register(
+  SRCS "main.c"
+  REQUIRED_IDF_TARGETS esp32
+)

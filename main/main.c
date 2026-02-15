@@ -1,11 +1,3 @@
-/* UDP MultiCast Send/Receive Example
-
-   This example code is in the Public Domain (or CC0 licensed, at your option.)
-
-   Unless required by applicable law or agreed to in writing, this
-   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-   CONDITIONS OF ANY KIND, either express or implied.
-*/
 #include <string.h>
 #include <sys/param.h>
 #include "freertos/FreeRTOS.h"
@@ -17,58 +9,35 @@
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "esp_netif.h"
-#include "protocol_examples_common.h"
 
 #include "lwip/err.h"
 #include "lwip/sockets.h"
 #include "lwip/sys.h"
 #include <lwip/netdb.h>
 
-/* The examples use simple configuration that you can set via
-   project configuration.
-
-   If you'd rather not, just change the below entries to strings with
-   the config you want - ie #define UDP_PORT 3333
-*/
-#define UDP_PORT CONFIG_EXAMPLE_PORT
-
-#define MULTICAST_LOOPBACK CONFIG_EXAMPLE_LOOPBACK
-
-#define MULTICAST_TTL CONFIG_EXAMPLE_MULTICAST_TTL
-
-#define MULTICAST_IPV4_ADDR CONFIG_EXAMPLE_MULTICAST_IPV4_ADDR
-#define MULTICAST_IPV6_ADDR CONFIG_EXAMPLE_MULTICAST_IPV6_ADDR
-
-#define LISTEN_ALL_IF   EXAMPLE_MULTICAST_LISTEN_ALL_IF
+#include "network/wifi.h"
 
 static char *TAG = "INIT_MULTICAST";
 
+static esp_netif_ip_info_t *ip_info = NULL;
 
-/* Add a socket, either IPV4-only or IPV6 dual mode, to the IPV4
-   multicast group */
 static int socket_add_ipv4_multicast_group(int sock, bool assign_source_if)
 {
     struct ip_mreq imreq = { 0 };
     struct in_addr iaddr = { 0 };
     int err = 0;
-    esp_netif_ip_info_t ip_info = { 0 };
-    err = esp_netif_get_ip_info(get_example_netif(), &ip_info);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to get IP address info. Error 0x%x", err);
-        goto err;
-    }
-    inet_addr_from_ip4addr(&iaddr, &ip_info.ip);
+    inet_addr_from_ip4addr(&iaddr, &ip_info->ip);
     // Configure multicast address to listen to
-    err = inet_aton(MULTICAST_IPV4_ADDR, &imreq.imr_multiaddr.s_addr);
+    err = inet_aton(CONFIG_MULTICAST_ADDR, &imreq.imr_multiaddr.s_addr);
     if (err != 1) {
-        ESP_LOGE(TAG, "Configured IPV4 multicast address '%s' is invalid.", MULTICAST_IPV4_ADDR);
+        ESP_LOGE(TAG, "Configured IPV4 multicast address '%s' is invalid.", CONFIG_MULTICAST_ADDR);
         // Errors in the return value have to be negative
         err = -1;
         goto err;
     }
     ESP_LOGI(TAG, "Configured IPV4 Multicast address %s", inet_ntoa(imreq.imr_multiaddr.s_addr));
     if (!IP_MULTICAST(ntohl(imreq.imr_multiaddr.s_addr))) {
-        ESP_LOGW(TAG, "Configured IPV4 multicast address '%s' is not a valid multicast address. This will probably not work.", MULTICAST_IPV4_ADDR);
+        ESP_LOGW(TAG, "Configured IPV4 multicast address '%s' is not a valid multicast address. This will probably not work.", CONFIG_MULTICAST_ADDR);
     }
 
     if (assign_source_if) {
@@ -107,7 +76,7 @@ static int create_multicast_ipv4_socket(void)
 
     // Bind the socket to any address
     saddr.sin_family = PF_INET;
-    saddr.sin_port = htons(UDP_PORT);
+    saddr.sin_port = htons(CONFIG_MULTICAST_PORT);
     saddr.sin_addr.s_addr = htonl(INADDR_ANY);
     err = bind(sock, (struct sockaddr *)&saddr, sizeof(struct sockaddr_in));
     if (err < 0) {
@@ -117,7 +86,7 @@ static int create_multicast_ipv4_socket(void)
 
 
     // Assign multicast TTL (set separately from normal interface TTL)
-    uint8_t ttl = MULTICAST_TTL;
+    uint8_t ttl = CONFIG_MULTICAST_TTL;
     err = setsockopt(sock, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, sizeof(uint8_t));
     if (err < 0) {
         ESP_LOGE(TAG, "Failed to set IP_MULTICAST_TTL. Error %d", errno);
@@ -158,10 +127,10 @@ static void mcast_example_task(void *pvParameters)
         // set destination multicast addresses for sending from these sockets
         struct sockaddr_in sdestv4 = {
             .sin_family = PF_INET,
-            .sin_port = htons(UDP_PORT),
+            .sin_port = htons(CONFIG_MULTICAST_PORT),
         };
         // We know this inet_aton will pass because we did it above already
-        inet_aton(MULTICAST_IPV4_ADDR, &sdestv4.sin_addr.s_addr);
+        inet_aton(CONFIG_MULTICAST_ADDR, &sdestv4.sin_addr.s_addr);
 
         // Loop waiting for UDP received, and sending UDP packets if we don't
         // see any.
@@ -229,7 +198,7 @@ static void mcast_example_task(void *pvParameters)
                 struct addrinfo *res;
 
                 hints.ai_family = AF_INET; // For an IPv4 socket
-                int err = getaddrinfo(CONFIG_EXAMPLE_MULTICAST_IPV4_ADDR,
+                int err = getaddrinfo(CONFIG_MULTICAST_ADDR,
                                       NULL,
                                       &hints,
                                       &res);
@@ -241,9 +210,9 @@ static void mcast_example_task(void *pvParameters)
                     ESP_LOGE(TAG, "getaddrinfo() did not return any addresses");
                     break;
                 }
-                ((struct sockaddr_in *)res->ai_addr)->sin_port = htons(UDP_PORT);
+                ((struct sockaddr_in *)res->ai_addr)->sin_port = htons(CONFIG_MULTICAST_PORT);
                 inet_ntoa_r(((struct sockaddr_in *)res->ai_addr)->sin_addr, addrbuf, sizeof(addrbuf)-1);
-                ESP_LOGI(TAG, "Sending to IPV4 multicast address %s:%d...",  addrbuf, UDP_PORT);
+                ESP_LOGI(TAG, "Sending to IPV4 multicast address %s:%d...",  addrbuf, CONFIG_MULTICAST_PORT);
                 err = sendto(sock, sendbuf, len, 0, res->ai_addr, res->ai_addrlen);
                 freeaddrinfo(res);
                 if (err < 0) {
@@ -292,14 +261,14 @@ void app_main(void)
     // Close
     nvs_close(my_handle);
 
-    ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
-    /* This helper function configures Wi-Fi or Ethernet, as selected in menuconfig.
-     * Read "Establishing Wi-Fi or Ethernet Connection" section in
-     * examples/protocols/README.md for more information about this function.
-     */
-    ESP_ERROR_CHECK(example_connect());
+    ESP_ERROR_CHECK(wifi_init(&ip_info));
+
+    while (ip_info == NULL){
+      ESP_LOGI(TAG, "Waiting for IP info");
+      vTaskDelay(1000 / portTICK_PERIOD_MS);
+    }
 
     xTaskCreate(&mcast_example_task, "mcast_task", 4096, NULL, 5, NULL);
 }

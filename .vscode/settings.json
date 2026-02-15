@@ -11,5 +11,6 @@
     "--query-driver=**",
     "--compile-commands-dir=/Users/zanebauman/udp_multicast/build"
   ],
-  "idf.flashType": "UART"
+  "idf.flashType": "UART",
+  "cSpell.words": ["cominter"]
 }

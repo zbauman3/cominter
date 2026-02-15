@@ -1,18 +1,18 @@
-menu "Example Configuration"
-    config EXAMPLE_MULTICAST_IPV4_ADDR
+menu "Multicast Configuration"
+    config MULTICAST_ADDR
         string "Multicast IPV4 Address (send & receive)"
         default "232.10.11.12"
         help
-            IPV4 multicast address. Example will both send to and listen to this address.
+            IPV4 multicast address to both send to and listen to.
 
-    config EXAMPLE_PORT
+    config MULTICAST_PORT
         int "Multicast port (send & receive)"
         range 0 65535
         default 3333
         help
-            Multicast port the example will both send & receive UDP packets on.
+            Multicast port to both send & receive UDP packets on.
 
-    config EXAMPLE_MULTICAST_TTL
+    config MULTICAST_TTL
         int  "Multicast packet TTL"
         range 1 255
         help
