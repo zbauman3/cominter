@@ -4,11 +4,11 @@
 #include "nvs_flash.h"
 #include <string.h>
 
-#include "device/persistence.h"
+#include "storage/nvs.h"
 
-static const char *TAG = "DEVICE:NVS";
+static const char *TAG = "STORAGE:NVS";
 
-esp_err_t persistence_init() {
+esp_err_t storage_nvs_init() {
   esp_err_t err = ESP_OK;
 
   err = nvs_flash_init();
@@ -20,11 +20,11 @@ esp_err_t persistence_init() {
   return ESP_OK;
 }
 
-esp_err_t persistence_fetch_name(device_state_handle_t device_state_handle) {
+esp_err_t storage_nvs_get_name(device_state_handle_t device_state_handle) {
   esp_err_t ret = ESP_OK;
   nvs_handle_t nvs_handle;
 
-  ESP_GOTO_ON_ERROR(nvs_open_from_partition("nvs", DEVICE_INFO_NAMESPACE,
+  ESP_GOTO_ON_ERROR(nvs_open_from_partition("nvs", NVS_DEVICE_INFO_NAMESPACE,
                                             NVS_READONLY, &nvs_handle),
                     fetch_name_cleanup, TAG, "Error (%s) opening NVS handle!",
                     esp_err_to_name(ret));
@@ -32,7 +32,7 @@ esp_err_t persistence_fetch_name(device_state_handle_t device_state_handle) {
   size_t str_len = 0;
   // this length includes the null terminator
   ESP_GOTO_ON_ERROR(
-      nvs_get_str(nvs_handle, DEVICE_INFO_NAME_KEY, NULL, &str_len),
+      nvs_get_str(nvs_handle, NVS_DEVICE_INFO_NAME_KEY, NULL, &str_len),
       fetch_name_cleanup, TAG, "Error (%s) getting string length!",
       esp_err_to_name(ret));
 
@@ -41,7 +41,7 @@ esp_err_t persistence_fetch_name(device_state_handle_t device_state_handle) {
   }
   device_state_handle->device_name = (char *)malloc(str_len);
 
-  ESP_GOTO_ON_ERROR(nvs_get_str(nvs_handle, DEVICE_INFO_NAME_KEY,
+  ESP_GOTO_ON_ERROR(nvs_get_str(nvs_handle, NVS_DEVICE_INFO_NAME_KEY,
                                 device_state_handle->device_name, &str_len),
                     fetch_name_cleanup, TAG, "Error (%s) getting string value!",
                     esp_err_to_name(ret));

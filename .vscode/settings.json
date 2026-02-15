@@ -1,5 +1,4 @@
 {
-  "C_Cpp.intelliSenseEngine": "default",
   "idf.openOcdConfigs": ["interface/ftdi/esp_ftdi.cfg", "target/esp32.cfg"],
   "idf.currentSetup": "/Users/zanebauman/.espressif/v5.5.2/esp-idf",
   "idf.customExtraVars": {
@@ -17,5 +16,7 @@
   "editor.formatOnSave": true,
   "[c]": {
     "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
-  }
+  },
+  "C_Cpp.inlayHints.parameterNames.enabled": false,
+  "editor.inlayHints.enabled": "off"
 }

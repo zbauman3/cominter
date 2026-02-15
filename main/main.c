@@ -1,28 +1,23 @@
 #include "esp_event.h"
 #include "esp_log.h"
-#include "esp_system.h"
-#include "esp_wifi.h"
-#include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
-#include "nvs_flash.h"
 #include <string.h>
 #include <sys/param.h>
 
-#include "lwip/err.h"
 #include "lwip/sockets.h"
-#include "lwip/sys.h"
 #include <lwip/netdb.h>
 
-#include "device/persistence.h"
-#include "device/state.h"
+#include "application/state.h"
 #include "network/wifi.h"
+#include "storage/nvs.h"
 
 static char *TAG = "MULTICAST";
 
-static int
-socket_add_ipv4_multicast_group(int sock, bool assign_source_if,
-                                device_state_handle_t device_state_handle) {
+#define SEND_REC_BUFF_SIZE 64
+
+static int add_multicast_group(int sock,
+                               device_state_handle_t device_state_handle) {
   struct ip_mreq imreq = {0};
   struct in_addr iaddr = {0};
   int err = 0;
@@ -45,15 +40,12 @@ socket_add_ipv4_multicast_group(int sock, bool assign_source_if,
              CONFIG_MULTICAST_ADDR);
   }
 
-  if (assign_source_if) {
-    // Assign the IPv4 multicast source interface, via its IP
-    // (only necessary if this socket is IPV4 only)
-    err = setsockopt(sock, IPPROTO_IP, IP_MULTICAST_IF, &iaddr,
-                     sizeof(struct in_addr));
-    if (err < 0) {
-      ESP_LOGE(TAG, "Failed to set IP_MULTICAST_IF. Error %d", errno);
-      goto err;
-    }
+  // Assign the IPv4 multicast source interface, via its IP
+  err = setsockopt(sock, IPPROTO_IP, IP_MULTICAST_IF, &iaddr,
+                   sizeof(struct in_addr));
+  if (err < 0) {
+    ESP_LOGE(TAG, "Failed to set IP_MULTICAST_IF. Error %d", errno);
+    goto err;
   }
 
   err = setsockopt(sock, IPPROTO_IP, IP_ADD_MEMBERSHIP, &imreq,
@@ -67,8 +59,7 @@ err:
   return err;
 }
 
-static int
-create_multicast_ipv4_socket(device_state_handle_t device_state_handle) {
+static int create_multi_socket(device_state_handle_t device_state_handle) {
   struct sockaddr_in saddr = {0};
   int sock = -1;
   int err = 0;
@@ -99,7 +90,7 @@ create_multicast_ipv4_socket(device_state_handle_t device_state_handle) {
 
   // this is also a listening socket, so add it to the multicast
   // group for listening...
-  err = socket_add_ipv4_multicast_group(sock, true, device_state_handle);
+  err = add_multicast_group(sock, device_state_handle);
   if (err < 0) {
     goto err;
   }
@@ -112,13 +103,13 @@ err:
   return -1;
 }
 
-static void mcast_example_task(void *pvParameters) {
+static void multicast_task(void *pvParameters) {
   device_state_handle_t device_state_handle =
       (device_state_handle_t)pvParameters;
   while (1) {
     int sock;
 
-    sock = create_multicast_ipv4_socket(device_state_handle);
+    sock = create_multi_socket(device_state_handle);
     if (sock < 0) {
       ESP_LOGE(TAG, "Failed to create IPv4 multicast socket");
     }
@@ -129,13 +120,13 @@ static void mcast_example_task(void *pvParameters) {
       continue;
     }
 
-    // set destination multicast addresses for sending from these sockets
-    struct sockaddr_in sdestv4 = {
-        .sin_family = PF_INET,
-        .sin_port = htons(CONFIG_MULTICAST_PORT),
-    };
-    // We know this inet_aton will pass because we did it above already
-    inet_aton(CONFIG_MULTICAST_ADDR, &sdestv4.sin_addr.s_addr);
+    // // set destination multicast addresses for sending from these sockets
+    // struct sockaddr_in sdestv4 = {
+    //     .sin_family = PF_INET,
+    //     .sin_port = htons(CONFIG_MULTICAST_PORT),
+    // };
+    // // We know this inet_aton will pass because we did it above already
+    // inet_aton(CONFIG_MULTICAST_ADDR, &sdestv4.sin_addr.s_addr);
 
     // Loop waiting for UDP received, and sending UDP packets if we don't
     // see any.
@@ -157,7 +148,7 @@ static void mcast_example_task(void *pvParameters) {
       } else if (s > 0) {
         if (FD_ISSET(sock, &rfds)) {
           // Incoming datagram received
-          char recvbuf[48];
+          char recvbuf[SEND_REC_BUFF_SIZE];
           char raddr_name[32] = {0};
 
           struct sockaddr_storage raddr; // Large enough for both IPv4 or IPv6
@@ -184,10 +175,11 @@ static void mcast_example_task(void *pvParameters) {
       } else { // s == 0
         // Timeout passed with no incoming data, so send something!
         static int send_count;
-        const char sendfmt[] = "Multicast #%d sent by ESP32\n";
-        char sendbuf[48];
+        const char sendfmt[] = "Multicast #%d sent by %s\n";
+        char sendbuf[SEND_REC_BUFF_SIZE];
         char addrbuf[32] = {0};
-        int len = snprintf(sendbuf, sizeof(sendbuf), sendfmt, send_count++);
+        int len = snprintf(sendbuf, sizeof(sendbuf), sendfmt, send_count++,
+                           device_state_handle->device_name);
         if (len > sizeof(sendbuf)) {
           ESP_LOGE(TAG, "Overflowed multicast sendfmt buffer!!");
           send_count = 0;
@@ -240,8 +232,8 @@ void app_main(void) {
   device_state_handle_t device_state_handle;
   ESP_ERROR_CHECK(device_state_init(&device_state_handle));
 
-  ESP_ERROR_CHECK(persistence_init());
-  ESP_ERROR_CHECK(persistence_fetch_name(device_state_handle));
+  ESP_ERROR_CHECK(storage_nvs_init());
+  ESP_ERROR_CHECK(storage_nvs_get_name(device_state_handle));
 
   ESP_ERROR_CHECK(esp_event_loop_create_default());
 
@@ -252,6 +244,6 @@ void app_main(void) {
     vTaskDelay(1000 / portTICK_PERIOD_MS);
   }
 
-  xTaskCreate(&mcast_example_task, "mcast_task", 4096, device_state_handle, 5,
+  xTaskCreate(&multicast_task, "mcast_task", 4096, device_state_handle, 5,
               NULL);
 }

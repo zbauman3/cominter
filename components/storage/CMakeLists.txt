@@ -1,7 +1,7 @@
 idf_component_register(
-  SRCS "wifi.c"
+  SRCS "nvs.c"
   INCLUDE_DIRS "include"
   REQUIRES "application"
-  PRIV_REQUIRES "esp_wifi" "esp_event"
+  PRIV_REQUIRES "nvs_flash"
   REQUIRED_IDF_TARGETS esp32
 )

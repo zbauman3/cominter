@@ -1,6 +1,6 @@
 #include <string.h>
 
-#include "device/state.h"
+#include "application/state.h"
 
 esp_err_t device_state_init(device_state_handle_t *device_state_handle_ptr) {
   device_state_handle_t device_state_handle =
