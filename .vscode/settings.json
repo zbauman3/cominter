@@ -18,5 +18,6 @@
     "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
   },
   "C_Cpp.inlayHints.parameterNames.enabled": false,
-  "editor.inlayHints.enabled": "off"
+  "editor.inlayHints.enabled": "off",
+  "idf.port": "/dev/tty.usbserial-575E0766721"
 }

@@ -1,3 +1,6 @@
+// Useful docs:
+// https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/lwip.html#bsd-sockets-api
+
 #include "esp_log.h"
 #include "lwip/sockets.h"
 #include <lwip/netdb.h>
@@ -111,14 +114,6 @@ esp_err_t udp_multicast_init(device_state_handle_t device_state_handle) {
       continue;
     }
 
-    // // set destination multicast addresses for sending from these sockets
-    // struct sockaddr_in sdestv4 = {
-    //     .sin_family = PF_INET,
-    //     .sin_port = htons(CONFIG_MULTICAST_PORT),
-    // };
-    // // We know this inet_aton will pass because we did it above already
-    // inet_aton(CONFIG_MULTICAST_ADDR, &sdestv4.sin_addr.s_addr);
-
     // Loop waiting for UDP received, and sending UDP packets if we don't
     // see any.
     int err = 1;
@@ -138,6 +133,7 @@ esp_err_t udp_multicast_init(device_state_handle_t device_state_handle) {
         break;
       } else if (s > 0) {
         if (FD_ISSET(sock, &rfds)) {
+
           // Incoming datagram received
           char recvbuf[SEND_REC_BUFF_SIZE];
           char raddr_name[32] = {0};
@@ -214,7 +210,7 @@ esp_err_t udp_multicast_init(device_state_handle_t device_state_handle) {
     }
 
     ESP_LOGE(TAG, "Shutting down socket and restarting...");
-    shutdown(sock, 0);
+    shutdown(sock, SHUT_RDWR);
     close(sock);
   }
 }

@@ -1,57 +1,86 @@
 {
   "version": "2.0.0",
+  "options": {
+    "env": {
+      "COMINTER_DEVICE_A_NAME": "Bad Boy",
+      "COMINTER_DEVICE_A_PORT": "/dev/tty.usbserial-575E0764921",
+      "COMINTER_DEVICE_B_NAME": "N00b",
+      "COMINTER_DEVICE_B_PORT": "/dev/tty.usbserial-575E0766721"
+    }
+  },
   "tasks": [
     {
       "label": "Monitor Device A",
       "type": "shell",
-      "command": "source /Users/zanebauman/.espressif/tools/activate_idf_v5.5.2.sh && ${IDF_PATH}/tools/idf.py monitor --port /dev/tty.usbserial-575E0764921",
+      "command": "COMINTER_DEVICE_NAME=${COMINTER_DEVICE_A_NAME} COMINTER_DEVICE_PORT=${COMINTER_DEVICE_A_PORT} . ./scripts/monitor.sh",
       "presentation": {
         "reveal": "always",
-        "panel": "dedicated"
+        "panel": "dedicated",
+        "group": "flash-monitor"
       },
       "problemMatcher": []
     },
     {
       "label": "Monitor Device B",
       "type": "shell",
-      "command": "source /Users/zanebauman/.espressif/tools/activate_idf_v5.5.2.sh && ${IDF_PATH}/tools/idf.py monitor --port /dev/tty.usbserial-575E0766721",
+      "command": "COMINTER_DEVICE_NAME=${COMINTER_DEVICE_B_NAME} COMINTER_DEVICE_PORT=${COMINTER_DEVICE_B_PORT} . ./scripts/monitor.sh",
       "presentation": {
         "reveal": "always",
-        "panel": "dedicated"
+        "panel": "dedicated",
+        "group": "flash-monitor"
       },
       "problemMatcher": []
     },
     {
-      "label": "Monitor Both Devices",
+      "label": "Monitor All Devices",
       "dependsOn": ["Monitor Device A", "Monitor Device B"],
       "dependsOrder": "parallel",
       "problemMatcher": []
     },
     {
-      "label": "Flash Device A",
+      "label": "Flash & Monitor Device A",
       "type": "shell",
-      "command": "source /Users/zanebauman/.espressif/tools/activate_idf_v5.5.2.sh && ${IDF_PATH}/tools/idf.py flash --port /dev/tty.usbserial-575E0764921",
+      "command": "COMINTER_DEVICE_NAME=${COMINTER_DEVICE_A_NAME} COMINTER_DEVICE_PORT=${COMINTER_DEVICE_A_PORT} . ./scripts/flash-and-monitor.sh",
       "presentation": {
         "reveal": "always",
-        "panel": "dedicated"
+        "panel": "dedicated",
+        "group": "flash-monitor"
       },
       "problemMatcher": []
     },
     {
-      "label": "Flash Device B",
-      "type": "esp-idf",
-      "command": "source /Users/zanebauman/.espressif/tools/activate_idf_v5.5.2.sh && ${IDF_PATH}/tools/idf.py flash --port /dev/tty.usbserial-575E0766721",
+      "label": "Flash & Monitor Device B",
+      "type": "shell",
+      "command": "COMINTER_DEVICE_NAME=${COMINTER_DEVICE_B_NAME} COMINTER_DEVICE_PORT=${COMINTER_DEVICE_B_PORT} . ./scripts/flash-and-monitor.sh",
       "presentation": {
         "reveal": "always",
-        "panel": "dedicated"
+        "panel": "dedicated",
+        "group": "flash-monitor"
       },
       "problemMatcher": []
     },
     {
-      "label": "Flash Both Devices",
-      "dependsOn": ["Flash Device A", "Flash Device B"],
+      "label": "Flash & Monitor All Devices",
+      "dependsOn": ["Flash & Monitor Device A", "Flash & Monitor Device B"],
       "dependsOrder": "parallel",
       "problemMatcher": []
-    }
+    },
+    {
+      "label": "Build",
+      "type": "shell",
+      "command": ". ./scripts/build.sh",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "build"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Build, Flash, & Monitor All Devices",
+      "dependsOn": ["Build", "Flash & Monitor All Devices"],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
   ]
 }

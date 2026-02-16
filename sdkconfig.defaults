@@ -7,3 +7,6 @@ CONFIG_MULTICAST_TTL=1
 CONFIG_SPIRAM=y
 CONFIG_ESP_INT_WDT_TIMEOUT_MS=300
 CONFIG_SPI_FLASH_SUPPORT_BOYA_CHIP=y
+# Reduce memory usage
+# https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/kconfig-reference.html#config-vfs-support-select
+CONFIG_VFS_SUPPORT_IO=n
