@@ -13,6 +13,8 @@ static char *TAG = "MULTICAST";
 
 #define TALK_BTN_PIN GPIO_NUM_35
 
+static device_state_handle_t device_state_handle;
+
 esp_err_t init_app() {
   esp_err_t ret = ESP_OK;
 
@@ -26,7 +28,6 @@ esp_err_t init_app() {
     return ret;
   }
 
-  device_state_handle_t device_state_handle;
   ret = device_state_init(&device_state_handle, TALK_BTN_PIN);
   if (ret != ESP_OK) {
     return ret;
