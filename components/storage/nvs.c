@@ -20,7 +20,7 @@ esp_err_t storage_nvs_init() {
   return ESP_OK;
 }
 
-esp_err_t storage_nvs_get_name(device_state_handle_t device_state_handle) {
+esp_err_t storage_nvs_get_name(state_handle_t state_handle) {
   esp_err_t ret = ESP_OK;
   nvs_handle_t nvs_handle;
 
@@ -36,13 +36,13 @@ esp_err_t storage_nvs_get_name(device_state_handle_t device_state_handle) {
       fetch_name_cleanup, TAG, "Error (%s) getting string length!",
       esp_err_to_name(ret));
 
-  if (device_state_handle->device_name != NULL) {
-    free(device_state_handle->device_name);
+  if (state_handle->device_name != NULL) {
+    free(state_handle->device_name);
   }
-  device_state_handle->device_name = (char *)malloc(str_len);
+  state_handle->device_name = (char *)malloc(str_len);
 
   ESP_GOTO_ON_ERROR(nvs_get_str(nvs_handle, NVS_DEVICE_INFO_NAME_KEY,
-                                device_state_handle->device_name, &str_len),
+                                state_handle->device_name, &str_len),
                     fetch_name_cleanup, TAG, "Error (%s) getting string value!",
                     esp_err_to_name(ret));
 

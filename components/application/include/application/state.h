@@ -18,7 +18,7 @@
 #define STATE_NETWORK_EVENT_GOT_NEW_IP (1 << 0)
 #define STATE_NETWORK_EVENT_SOCKET_READY (1 << 1)
 
-typedef struct {
+typedef struct state_t {
   esp_netif_ip_info_t *ip_info;
   char *device_name;
   EventGroupHandle_t network_events;
@@ -30,8 +30,8 @@ typedef struct {
   struct {
     int talk_btn;
   } pins;
-} device_state_t;
+} state_t;
 
-typedef device_state_t *device_state_handle_t;
+typedef state_t *state_handle_t;
 
-esp_err_t device_state_init(device_state_handle_t *handle, int talk_btn_pin);
+esp_err_t state_init(state_handle_t *handle, int talk_btn_pin);

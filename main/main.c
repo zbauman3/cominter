@@ -13,7 +13,7 @@ static char *TAG = "MULTICAST";
 
 #define TALK_BTN_PIN GPIO_NUM_35
 
-static device_state_handle_t device_state_handle;
+static state_handle_t state_handle;
 
 esp_err_t init_app() {
   esp_err_t ret = ESP_OK;
@@ -28,27 +28,27 @@ esp_err_t init_app() {
     return ret;
   }
 
-  ret = device_state_init(&device_state_handle, TALK_BTN_PIN);
+  ret = state_init(&state_handle, TALK_BTN_PIN);
   if (ret != ESP_OK) {
     return ret;
   }
 
-  ret = storage_nvs_get_name(device_state_handle);
+  ret = storage_nvs_get_name(state_handle);
   if (ret != ESP_OK) {
     return ret;
   }
 
-  ret = udp_multicast_init(device_state_handle);
+  ret = udp_multicast_init(state_handle);
   if (ret != ESP_OK) {
     return ret;
   }
 
-  ret = io_inputs_init(device_state_handle);
+  ret = io_inputs_init(state_handle);
   if (ret != ESP_OK) {
     return ret;
   }
 
-  ret = wifi_init(device_state_handle);
+  ret = wifi_init(state_handle);
   if (ret != ESP_OK) {
     return ret;
   }

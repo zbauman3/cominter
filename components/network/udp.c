@@ -93,11 +93,11 @@ esp_err_t buffer_to_message(message_buffer_t *message_buffer,
 // Socket Stuff
 // ----------------
 
-static esp_err_t udp_socket_create(device_state_handle_t device_state_handle) {
-  if (device_state_handle->socket >= 0) {
+static esp_err_t udp_socket_create(state_handle_t state_handle) {
+  if (state_handle->socket >= 0) {
     ESP_LOGW(SOCKET_TAG,
              "Multicast socket already created. Returning existing socket.");
-    return device_state_handle->socket;
+    return state_handle->socket;
   }
 
   struct sockaddr_in saddr = {0};
@@ -106,8 +106,8 @@ static esp_err_t udp_socket_create(device_state_handle_t device_state_handle) {
   esp_err_t ret = ESP_OK;
 
   // Create the socket
-  device_state_handle->socket = socket(PF_INET, SOCK_DGRAM, IPPROTO_IP);
-  ESP_GOTO_ON_FALSE(device_state_handle->socket >= 0, ESP_ERR_INVALID_STATE,
+  state_handle->socket = socket(PF_INET, SOCK_DGRAM, IPPROTO_IP);
+  ESP_GOTO_ON_FALSE(state_handle->socket >= 0, ESP_ERR_INVALID_STATE,
                     udp_multicast_socket_create_end, SOCKET_TAG,
                     "Failed to create socket: %d", errno);
 
@@ -115,20 +115,20 @@ static esp_err_t udp_socket_create(device_state_handle_t device_state_handle) {
   saddr.sin_family = PF_INET;
   saddr.sin_port = htons(CONFIG_MULTICAST_PORT);
   saddr.sin_addr.s_addr = htonl(INADDR_ANY);
-  ESP_GOTO_ON_FALSE(bind(device_state_handle->socket, (struct sockaddr *)&saddr,
+  ESP_GOTO_ON_FALSE(bind(state_handle->socket, (struct sockaddr *)&saddr,
                          sizeof(struct sockaddr_in)) >= 0,
                     ESP_ERR_INVALID_STATE, udp_multicast_socket_create_end,
                     SOCKET_TAG, "Failed to bind socket: %d", errno);
 
   // Assign multicast TTL (set separately from normal interface TTL)
   uint8_t ttl = CONFIG_MULTICAST_TTL;
-  ESP_GOTO_ON_FALSE(setsockopt(device_state_handle->socket, IPPROTO_IP,
+  ESP_GOTO_ON_FALSE(setsockopt(state_handle->socket, IPPROTO_IP,
                                IP_MULTICAST_TTL, &ttl, sizeof(uint8_t)) >= 0,
                     ESP_ERR_INVALID_STATE, udp_multicast_socket_create_end,
                     SOCKET_TAG, "Failed to set IP_MULTICAST_TTL: %d", errno);
 
   // Configure the multicast source interface address
-  inet_addr_from_ip4addr(&iaddr, &device_state_handle->ip_info->ip);
+  inet_addr_from_ip4addr(&iaddr, &state_handle->ip_info->ip);
 
   // Configure the address for multicast membership
   ESP_GOTO_ON_FALSE(
@@ -146,14 +146,14 @@ static esp_err_t udp_socket_create(device_state_handle_t device_state_handle) {
            inet_ntoa(imreq.imr_multiaddr.s_addr));
 
   // Assign the multicast source interface address
-  ESP_GOTO_ON_FALSE(setsockopt(device_state_handle->socket, IPPROTO_IP,
+  ESP_GOTO_ON_FALSE(setsockopt(state_handle->socket, IPPROTO_IP,
                                IP_MULTICAST_IF, &iaddr,
                                sizeof(struct in_addr)) >= 0,
                     ESP_ERR_INVALID_STATE, udp_multicast_socket_create_end,
                     SOCKET_TAG, "Failed to set IP_MULTICAST_IF: %d", errno);
 
   // Add the multicast group to the socket
-  ESP_GOTO_ON_FALSE(setsockopt(device_state_handle->socket, IPPROTO_IP,
+  ESP_GOTO_ON_FALSE(setsockopt(state_handle->socket, IPPROTO_IP,
                                IP_ADD_MEMBERSHIP, &imreq,
                                sizeof(struct ip_mreq)) >= 0,
                     ESP_ERR_INVALID_STATE, udp_multicast_socket_create_end,
@@ -161,9 +161,9 @@ static esp_err_t udp_socket_create(device_state_handle_t device_state_handle) {
 
 udp_multicast_socket_create_end:
   if (ret != ESP_OK) {
-    if (device_state_handle->socket >= 0) {
-      close(device_state_handle->socket);
-      device_state_handle->socket = -1;
+    if (state_handle->socket >= 0) {
+      close(state_handle->socket);
+      state_handle->socket = -1;
     }
   }
 
@@ -171,42 +171,41 @@ udp_multicast_socket_create_end:
 }
 
 void udp_socket_task(void *pvParameters) {
-  device_state_handle_t device_state_handle =
-      (device_state_handle_t)pvParameters;
+  state_handle_t state_handle = (state_handle_t)pvParameters;
   esp_err_t create_status;
 
   while (1) {
-    xEventGroupWaitBits(device_state_handle->network_events,
+    xEventGroupWaitBits(state_handle->network_events,
                         STATE_NETWORK_EVENT_GOT_NEW_IP, pdTRUE, pdTRUE,
                         portMAX_DELAY);
     ESP_LOGI(SOCKET_TAG, "Got new IP, creating socket...");
 
-    udp_socket_close(device_state_handle);
+    udp_socket_close(state_handle);
 
-    while (device_state_handle->socket < 0) {
+    while (state_handle->socket < 0) {
       create_status = ESP_OK;
-      create_status = udp_socket_create(device_state_handle);
+      create_status = udp_socket_create(state_handle);
 
-      if (create_status != ESP_OK || device_state_handle->socket < 0) {
+      if (create_status != ESP_OK || state_handle->socket < 0) {
         ESP_LOGE(SOCKET_TAG, "Failed to create multicast socket. Retrying...");
         vTaskDelay(100 / portTICK_PERIOD_MS);
       } else {
         ESP_LOGI(SOCKET_TAG, "Socket created successfully");
-        xEventGroupSetBits(device_state_handle->network_events,
+        xEventGroupSetBits(state_handle->network_events,
                            STATE_NETWORK_EVENT_SOCKET_READY);
       }
     }
   }
 }
 
-void udp_socket_close(device_state_handle_t device_state_handle) {
-  if (device_state_handle->socket >= 0) {
-    shutdown(device_state_handle->socket, SHUT_RDWR);
-    close(device_state_handle->socket);
+void udp_socket_close(state_handle_t state_handle) {
+  if (state_handle->socket >= 0) {
+    shutdown(state_handle->socket, SHUT_RDWR);
+    close(state_handle->socket);
   }
-  xEventGroupClearBits(device_state_handle->network_events,
+  xEventGroupClearBits(state_handle->network_events,
                        STATE_NETWORK_EVENT_SOCKET_READY);
-  device_state_handle->socket = -1;
+  state_handle->socket = -1;
 }
 
 // ----------------
@@ -214,11 +213,10 @@ void udp_socket_close(device_state_handle_t device_state_handle) {
 // ----------------
 
 void udp_multicast_task(void *pvParameters) {
-  device_state_handle_t device_state_handle =
-      (device_state_handle_t)pvParameters;
+  state_handle_t state_handle = (state_handle_t)pvParameters;
 
   while (1) {
-    xEventGroupWaitBits(device_state_handle->network_events,
+    xEventGroupWaitBits(state_handle->network_events,
                         STATE_NETWORK_EVENT_SOCKET_READY, pdFALSE, pdFALSE,
                         portMAX_DELAY);
 
@@ -229,25 +227,25 @@ void udp_multicast_task(void *pvParameters) {
     };
     fd_set rfds;
     FD_ZERO(&rfds);
-    FD_SET(device_state_handle->socket, &rfds);
+    FD_SET(state_handle->socket, &rfds);
 
-    int s = select(device_state_handle->socket + 1, &rfds, NULL, NULL, &tv);
+    int s = select(state_handle->socket + 1, &rfds, NULL, NULL, &tv);
     if (s < 0) {
       ESP_LOGE(MULTICAST_TAG, "Select failed: errno %d", errno);
       continue;
     }
 
-    ESP_LOGI(MULTICAST_TAG, "----%s----", device_state_handle->device_name);
+    ESP_LOGI(MULTICAST_TAG, "----%s----", state_handle->device_name);
 
     if (s > 0) {
-      if (FD_ISSET(device_state_handle->socket, &rfds)) {
+      if (FD_ISSET(state_handle->socket, &rfds)) {
         message_buffer_t incoming_message_buffer;
         char raddr_name[32] = {0};
 
         struct sockaddr_storage raddr;
         socklen_t socklen = sizeof(raddr);
         incoming_message_buffer.length = recvfrom(
-            device_state_handle->socket, incoming_message_buffer.buffer,
+            state_handle->socket, incoming_message_buffer.buffer,
             MESSAGE_MAX_LENGTH + 1, 0, (struct sockaddr *)&raddr, &socklen);
 
         if (incoming_message_buffer.length < (int)sizeof(message_header_t)) {
@@ -297,7 +295,7 @@ void udp_multicast_task(void *pvParameters) {
       outgoing_message.header.type = MESSAGE_TYPE_TEXT;
       // hard-coded length for now, will change to dynamic later
       outgoing_message.header.length =
-          strlen(device_state_handle->device_name) + 10 + 1;
+          strlen(state_handle->device_name) + 10 + 1;
 
       // first allocate the memory for the text message
       outgoing_message.text.value =
@@ -309,7 +307,7 @@ void udp_multicast_task(void *pvParameters) {
 
       // add the device name and the send_count to the message
       snprintf(outgoing_message.text.value, outgoing_message.header.length,
-               "%s - %d", device_state_handle->device_name, send_count);
+               "%s - %d", state_handle->device_name, send_count);
 
       struct addrinfo hints = {
           .ai_flags = AI_PASSIVE,
@@ -348,7 +346,7 @@ void udp_multicast_task(void *pvParameters) {
         continue;
       }
 
-      err = sendto(device_state_handle->socket, outgoing_message_buffer.buffer,
+      err = sendto(state_handle->socket, outgoing_message_buffer.buffer,
                    outgoing_message_buffer.length, 0, res->ai_addr,
                    res->ai_addrlen);
 
@@ -367,33 +365,32 @@ void udp_multicast_task(void *pvParameters) {
 // Setup Stuff
 // ----------------
 
-esp_err_t udp_multicast_init(device_state_handle_t device_state_handle) {
+esp_err_t udp_multicast_init(state_handle_t state_handle) {
   BaseType_t xReturned;
 
-  xReturned = xTaskCreate(udp_multicast_task, MULTICAST_TAG,
-                          STATE_TASK_STACK_DEPTH_MULTICAST, device_state_handle,
-                          STATE_TASK_PRIORITY_MULTICAST,
-                          &device_state_handle->task_multicast);
+  xReturned =
+      xTaskCreate(udp_multicast_task, MULTICAST_TAG,
+                  STATE_TASK_STACK_DEPTH_MULTICAST, state_handle,
+                  STATE_TASK_PRIORITY_MULTICAST, &state_handle->task_multicast);
 
   if (xReturned != pdPASS) {
     ESP_LOGE(BASE_TAG, "Failed to create multicast task");
     return ESP_ERR_INVALID_STATE;
   }
-  if (device_state_handle->task_multicast == NULL) {
+  if (state_handle->task_multicast == NULL) {
     ESP_LOGE(BASE_TAG, "Failed to create multicast task");
     return ESP_ERR_NO_MEM;
   }
 
-  xReturned =
-      xTaskCreate(udp_socket_task, SOCKET_TAG, STATE_TASK_STACK_DEPTH_SOCKET,
-                  device_state_handle, STATE_TASK_PRIORITY_SOCKET,
-                  &device_state_handle->task_socket);
+  xReturned = xTaskCreate(
+      udp_socket_task, SOCKET_TAG, STATE_TASK_STACK_DEPTH_SOCKET, state_handle,
+      STATE_TASK_PRIORITY_SOCKET, &state_handle->task_socket);
 
   if (xReturned != pdPASS) {
     ESP_LOGE(BASE_TAG, "Failed to create socket task");
     return ESP_ERR_INVALID_STATE;
   }
-  if (device_state_handle->task_socket == NULL) {
+  if (state_handle->task_socket == NULL) {
     ESP_LOGE(BASE_TAG, "Failed to create socket task");
     return ESP_ERR_NO_MEM;
   }
