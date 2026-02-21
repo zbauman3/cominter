@@ -4,13 +4,16 @@
 #include "esp_netif_types.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
+#include "freertos/queue.h"
 #include "freertos/task.h"
 
 #define STATE_TASK_PRIORITY_SOCKET 6
 #define STATE_TASK_PRIORITY_MULTICAST 5
+#define STATE_TASK_PRIORITY_INPUTS 4
 
 #define STATE_TASK_STACK_DEPTH_SOCKET 1024 * 4
 #define STATE_TASK_STACK_DEPTH_MULTICAST 1024 * 4
+#define STATE_TASK_STACK_DEPTH_INPUTS 1024 * 2
 
 #define STATE_NETWORK_EVENT_GOT_NEW_IP (1 << 0)
 #define STATE_NETWORK_EVENT_SOCKET_READY (1 << 1)
@@ -21,9 +24,14 @@ typedef struct {
   EventGroupHandle_t network_events;
   TaskHandle_t task_socket;
   TaskHandle_t task_multicast;
+  TaskHandle_t task_inputs;
   int socket;
+  QueueHandle_t inputs_queue;
+  struct {
+    int talk_btn;
+  } pins;
 } device_state_t;
 
 typedef device_state_t *device_state_handle_t;
 
-esp_err_t device_state_init(device_state_handle_t *handle);
+esp_err_t device_state_init(device_state_handle_t *handle, int talk_btn_pin);

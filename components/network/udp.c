@@ -8,13 +8,86 @@
 #include <lwip/netdb.h>
 #include <sys/param.h>
 
+#include "application/messages.h"
 #include "network/udp.h"
-
-#define SEND_REC_BUFF_SIZE 64
 
 static const char *BASE_TAG = "NETWORK:UDP";
 static const char *SOCKET_TAG = "NETWORK:UDP:SOCKET";
 static const char *MULTICAST_TAG = "NETWORK:UDP:MULTICAST";
+
+// ----------------
+// Utils Stuff
+// ----------------
+
+typedef struct message_buffer_t {
+  uint8_t buffer[MESSAGE_MAX_LENGTH];
+  size_t length;
+} message_buffer_t;
+
+esp_err_t message_to_buffer(message_t *message,
+                            message_buffer_t *message_buffer) {
+  message_buffer->length = sizeof(message_header_t) + message->header.length;
+  if (message_buffer->length > MESSAGE_MAX_LENGTH) {
+    ESP_LOGE(MULTICAST_TAG, "Message length too long: %d",
+             message_buffer->length);
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  memcpy(message_buffer->buffer, &message->header, sizeof(message_header_t));
+
+  switch (message->header.type) {
+  case MESSAGE_TYPE_TEXT:
+    memcpy(message_buffer->buffer + sizeof(message_header_t),
+           message->text.value, message->header.length);
+    break;
+  case MESSAGE_TYPE_AUDIO:
+    memcpy(message_buffer->buffer + sizeof(message_header_t),
+           message->audio.value, message->header.length);
+    break;
+  }
+
+  return ESP_OK;
+}
+
+esp_err_t buffer_to_message(message_buffer_t *message_buffer,
+                            message_t *message) {
+  memcpy(&message->header, message_buffer->buffer, sizeof(message_header_t));
+
+  uint8_t *payload = message_buffer->buffer + sizeof(message_header_t);
+  int payload_len = message_buffer->length - sizeof(message_header_t);
+
+  if (payload_len != message->header.length) {
+    ESP_LOGE(MULTICAST_TAG, "Payload length mismatch: expected %d, got %d",
+             message->header.length, payload_len);
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  switch (message->header.type) {
+  case MESSAGE_TYPE_TEXT:
+    // first allocate the memory for the text message
+    message->text.value = (char *)malloc(message->header.length + 1);
+    if (message->text.value == NULL) {
+      ESP_LOGE(MULTICAST_TAG, "Failed to allocate memory for text message");
+      return ESP_ERR_NO_MEM;
+    }
+    memcpy(message->text.value, payload, message->header.length);
+    message->text.value[message->header.length] = '\0';
+    break;
+  case MESSAGE_TYPE_AUDIO:
+    message->audio.value = (uint8_t *)malloc(message->header.length);
+    if (message->audio.value == NULL) {
+      ESP_LOGE(MULTICAST_TAG, "Failed to allocate memory for audio message");
+      return ESP_ERR_NO_MEM;
+    }
+    memcpy(message->audio.value, payload, message->header.length);
+    break;
+  default:
+    ESP_LOGE(MULTICAST_TAG, "Unknown message type: %d", message->header.type);
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  return ESP_OK;
+}
 
 // ----------------
 // Socket Stuff
@@ -168,18 +241,23 @@ void udp_multicast_task(void *pvParameters) {
 
     if (s > 0) {
       if (FD_ISSET(device_state_handle->socket, &rfds)) {
-
-        // Incoming datagram received
-        char recvbuf[SEND_REC_BUFF_SIZE];
+        message_buffer_t incoming_message_buffer;
         char raddr_name[32] = {0};
 
-        struct sockaddr_storage raddr; // Large enough for both IPv4 or IPv6
+        struct sockaddr_storage raddr;
         socklen_t socklen = sizeof(raddr);
-        int len =
-            recvfrom(device_state_handle->socket, recvbuf, sizeof(recvbuf) - 1,
-                     0, (struct sockaddr *)&raddr, &socklen);
-        if (len < 0) {
+        incoming_message_buffer.length = recvfrom(
+            device_state_handle->socket, incoming_message_buffer.buffer,
+            MESSAGE_MAX_LENGTH, 0, (struct sockaddr *)&raddr, &socklen);
+        if (incoming_message_buffer.length < (int)sizeof(message_header_t)) {
           ESP_LOGE(MULTICAST_TAG, "multicast recvfrom failed: errno %d", errno);
+          continue;
+        }
+
+        message_t incoming_message;
+        if (buffer_to_message(&incoming_message_buffer, &incoming_message) !=
+            ESP_OK) {
+          ESP_LOGE(MULTICAST_TAG, "Failed to convert buffer to message");
           continue;
         }
 
@@ -188,25 +266,43 @@ void udp_multicast_task(void *pvParameters) {
           inet_ntoa_r(((struct sockaddr_in *)&raddr)->sin_addr, raddr_name,
                       sizeof(raddr_name) - 1);
         }
-        ESP_LOGI(MULTICAST_TAG, "received %d bytes from %s:", len, raddr_name);
+        ESP_LOGI(MULTICAST_TAG, "received packet from %s:", raddr_name);
 
-        recvbuf[len] = 0; // Null-terminate whatever we received and treat
-                          // like a string...
-        ESP_LOGI(MULTICAST_TAG, "%s\n", recvbuf);
+        switch (incoming_message.header.type) {
+        case MESSAGE_TYPE_TEXT:
+          ESP_LOGI(MULTICAST_TAG, "%s\n", incoming_message.text.value);
+          free(incoming_message.text.value);
+          break;
+        case MESSAGE_TYPE_AUDIO:
+          ESP_LOGI(MULTICAST_TAG, "audio message of length %d received\n",
+                   incoming_message.header.length);
+          free(incoming_message.audio.value);
+          break;
+        }
       }
     } else { // s == 0
-      // Timeout passed with no incoming data, so send something!
       static int send_count;
-      const char sendfmt[] = "Multicast #%d sent by %s";
-      char sendbuf[SEND_REC_BUFF_SIZE];
+      send_count++;
+
+      message_t outgoing_message;
       char addrbuf[32] = {0};
-      int len = snprintf(sendbuf, sizeof(sendbuf), sendfmt, send_count++,
-                         device_state_handle->device_name);
-      if (len > sizeof(sendbuf)) {
-        ESP_LOGE(MULTICAST_TAG, "Overflowed multicast sendfmt buffer!!");
-        send_count = 0;
+
+      outgoing_message.header.type = MESSAGE_TYPE_TEXT;
+      // hard-coded length for now, will change to dynamic later
+      outgoing_message.header.length =
+          strlen(device_state_handle->device_name) + 10 + 1;
+
+      // first allocate the memory for the text message
+      outgoing_message.text.value =
+          (char *)malloc(outgoing_message.header.length);
+      if (outgoing_message.text.value == NULL) {
+        ESP_LOGE(MULTICAST_TAG, "Failed to allocate memory for text message");
         continue;
       }
+
+      // add the device name and the send_count to the message
+      snprintf(outgoing_message.text.value, outgoing_message.header.length,
+               "%s - %d", device_state_handle->device_name, send_count);
 
       struct addrinfo hints = {
           .ai_flags = AI_PASSIVE,
@@ -220,25 +316,42 @@ void udp_multicast_task(void *pvParameters) {
         ESP_LOGE(MULTICAST_TAG,
                  "getaddrinfo() failed for IPV4 destination address. error: %d",
                  err);
+        free(outgoing_message.text.value);
         continue;
       }
       if (res == 0) {
         ESP_LOGE(MULTICAST_TAG, "getaddrinfo() did not return any addresses");
+        free(outgoing_message.text.value);
         continue;
       }
       ((struct sockaddr_in *)res->ai_addr)->sin_port =
           htons(CONFIG_MULTICAST_PORT);
+
       inet_ntoa_r(((struct sockaddr_in *)res->ai_addr)->sin_addr, addrbuf,
                   sizeof(addrbuf) - 1);
-      ESP_LOGI(MULTICAST_TAG, "Sending to IPV4 multicast address %s:%d...\n",
-               addrbuf, CONFIG_MULTICAST_PORT);
-      err = sendto(device_state_handle->socket, sendbuf, len, 0, res->ai_addr,
-                   res->ai_addrlen);
-      freeaddrinfo(res);
-      if (err < 0) {
-        ESP_LOGE(MULTICAST_TAG, "IPV4 sendto failed. errno: %d", errno);
+
+      ESP_LOGI(MULTICAST_TAG, "Sending to multicast address %s:%d\n", addrbuf,
+               CONFIG_MULTICAST_PORT);
+
+      message_buffer_t outgoing_message_buffer;
+      err = message_to_buffer(&outgoing_message, &outgoing_message_buffer);
+      if (err != ESP_OK) {
+        ESP_LOGE(MULTICAST_TAG, "Failed to convert message to buffer");
+        free(outgoing_message.text.value);
         continue;
       }
+
+      err = sendto(device_state_handle->socket, outgoing_message_buffer.buffer,
+                   outgoing_message_buffer.length, 0, res->ai_addr,
+                   res->ai_addrlen);
+
+      freeaddrinfo(res);
+      if (err < 0) {
+        ESP_LOGE(MULTICAST_TAG, "sendto failed. errno: %d", errno);
+        free(outgoing_message.text.value);
+        continue;
+      }
+      free(outgoing_message.text.value);
     }
   }
 }

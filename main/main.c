@@ -1,13 +1,17 @@
+#include "driver/gpio.h"
 #include "esp_err.h"
 #include "esp_event.h"
 #include "esp_log.h"
 
 #include "application/state.h"
+#include "io/inputs.h"
 #include "network/udp.h"
 #include "network/wifi.h"
 #include "storage/nvs.h"
 
 static char *TAG = "MULTICAST";
+
+#define TALK_BTN_PIN GPIO_NUM_35
 
 esp_err_t init_app() {
   esp_err_t ret = ESP_OK;
@@ -23,7 +27,7 @@ esp_err_t init_app() {
   }
 
   device_state_handle_t device_state_handle;
-  ret = device_state_init(&device_state_handle);
+  ret = device_state_init(&device_state_handle, TALK_BTN_PIN);
   if (ret != ESP_OK) {
     return ret;
   }
@@ -34,6 +38,11 @@ esp_err_t init_app() {
   }
 
   ret = udp_multicast_init(device_state_handle);
+  if (ret != ESP_OK) {
+    return ret;
+  }
+
+  ret = io_inputs_init(device_state_handle);
   if (ret != ESP_OK) {
     return ret;
   }

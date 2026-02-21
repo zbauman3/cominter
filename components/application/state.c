@@ -3,12 +3,15 @@
 #include "application/state.h"
 #include "freertos/idf_additions.h"
 
-esp_err_t device_state_init(device_state_handle_t *device_state_handle_ptr) {
+esp_err_t device_state_init(device_state_handle_t *device_state_handle_ptr,
+                            int talk_btn_pin) {
   device_state_handle_t device_state_handle =
       (device_state_handle_t)malloc(sizeof(device_state_t));
   if (device_state_handle == NULL) {
     return ESP_ERR_NO_MEM;
   }
+
+  device_state_handle->pins.talk_btn = talk_btn_pin;
 
   device_state_handle->ip_info =
       (esp_netif_ip_info_t *)malloc(sizeof(esp_netif_ip_info_t));
@@ -18,15 +21,18 @@ esp_err_t device_state_init(device_state_handle_t *device_state_handle_ptr) {
 
   device_state_handle->task_multicast = NULL;
   device_state_handle->task_socket = NULL;
+  device_state_handle->task_inputs = NULL;
   device_state_handle->socket = -1;
 
   device_state_handle->network_events = xEventGroupCreate();
   if (device_state_handle->network_events == NULL) {
     return ESP_ERR_NO_MEM;
   }
-  xEventGroupClearBits(device_state_handle->network_events,
-                       STATE_NETWORK_EVENT_GOT_NEW_IP |
-                           STATE_NETWORK_EVENT_SOCKET_READY);
+
+  device_state_handle->inputs_queue = xQueueCreate(10, sizeof(uint32_t));
+  if (device_state_handle->inputs_queue == NULL) {
+    return ESP_ERR_NO_MEM;
+  }
 
   device_state_handle->ip_info->ip = (esp_ip4_addr_t){0};
   device_state_handle->ip_info->netmask = (esp_ip4_addr_t){0};
