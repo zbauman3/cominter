@@ -12,18 +12,7 @@ static char *TAG = "MULTICAST";
 esp_err_t init_app() {
   esp_err_t ret = ESP_OK;
 
-  device_state_handle_t device_state_handle;
-  ret = device_state_init(&device_state_handle);
-  if (ret != ESP_OK) {
-    return ret;
-  }
-
   ret = storage_nvs_init();
-  if (ret != ESP_OK) {
-    return ret;
-  }
-
-  ret = storage_nvs_get_name(device_state_handle);
   if (ret != ESP_OK) {
     return ret;
   }
@@ -33,16 +22,23 @@ esp_err_t init_app() {
     return ret;
   }
 
-  ret = wifi_init(device_state_handle);
+  device_state_handle_t device_state_handle;
+  ret = device_state_init(&device_state_handle);
   if (ret != ESP_OK) {
     return ret;
   }
 
-  while (device_state_handle->ip_info->ip.addr == 0) {
-    vTaskDelay(500 / portTICK_PERIOD_MS);
+  ret = storage_nvs_get_name(device_state_handle);
+  if (ret != ESP_OK) {
+    return ret;
   }
 
   ret = udp_multicast_init(device_state_handle);
+  if (ret != ESP_OK) {
+    return ret;
+  }
+
+  ret = wifi_init(device_state_handle);
   if (ret != ESP_OK) {
     return ret;
   }

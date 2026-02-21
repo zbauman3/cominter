@@ -1,9 +1,11 @@
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_wifi.h"
+#include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include <string.h>
 
+#include "network/udp.h"
 #include "network/wifi.h"
 
 static const char *TAG = "NETWORK:WIFI";
@@ -22,16 +24,15 @@ static void event_handler(void *arg, esp_event_base_t event_base,
       ESP_LOGD(TAG, "IPV4 is: " IPSTR, IP2STR(&event->ip_info.ip));
       memcpy(device_state_handle->ip_info, &event->ip_info,
              sizeof(esp_netif_ip_info_t));
-      break;
-    }
-    case IP_EVENT_GOT_IP6: {
-      ip_event_got_ip6_t *event = (ip_event_got_ip6_t *)event_data;
-      ESP_LOGD(TAG, "EVENT - IP_EVENT_GOT_IP6");
-      ESP_LOGD(TAG, "IPV6 is: " IPV6STR, IPV62STR(event->ip6_info.ip));
+      // signal that we've got a new IP so that the socket can be created
+      xEventGroupSetBits(device_state_handle->network_events,
+                         STATE_NETWORK_EVENT_GOT_NEW_IP);
       break;
     }
     case IP_EVENT_STA_LOST_IP: {
       ESP_LOGD(TAG, "EVENT - IP_EVENT_STA_LOST_IP");
+      // Close the socket, it will be recreated when we get a new IP
+      udp_socket_close(device_state_handle);
       device_state_handle->ip_info->ip = (esp_ip4_addr_t){0};
       device_state_handle->ip_info->netmask = (esp_ip4_addr_t){0};
       device_state_handle->ip_info->gw = (esp_ip4_addr_t){0};

@@ -2,10 +2,26 @@
 
 #include "esp_err.h"
 #include "esp_netif_types.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/event_groups.h"
+#include "freertos/task.h"
+
+#define STATE_TASK_PRIORITY_SOCKET 6
+#define STATE_TASK_PRIORITY_MULTICAST 5
+
+#define STATE_TASK_STACK_DEPTH_SOCKET 1024 * 4
+#define STATE_TASK_STACK_DEPTH_MULTICAST 1024 * 4
+
+#define STATE_NETWORK_EVENT_GOT_NEW_IP (1 << 0)
+#define STATE_NETWORK_EVENT_SOCKET_READY (1 << 1)
 
 typedef struct {
   esp_netif_ip_info_t *ip_info;
   char *device_name;
+  EventGroupHandle_t network_events;
+  TaskHandle_t task_socket;
+  TaskHandle_t task_multicast;
+  int socket;
 } device_state_t;
 
 typedef device_state_t *device_state_handle_t;
