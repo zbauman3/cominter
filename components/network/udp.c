@@ -248,9 +248,16 @@ void udp_multicast_task(void *pvParameters) {
         socklen_t socklen = sizeof(raddr);
         incoming_message_buffer.length = recvfrom(
             device_state_handle->socket, incoming_message_buffer.buffer,
-            MESSAGE_MAX_LENGTH, 0, (struct sockaddr *)&raddr, &socklen);
+            MESSAGE_MAX_LENGTH + 1, 0, (struct sockaddr *)&raddr, &socklen);
+
         if (incoming_message_buffer.length < (int)sizeof(message_header_t)) {
           ESP_LOGE(MULTICAST_TAG, "multicast recvfrom failed: errno %d", errno);
+          continue;
+        }
+
+        if (incoming_message_buffer.length > MESSAGE_MAX_LENGTH) {
+          ESP_LOGE(MULTICAST_TAG, "Message length too long: %d",
+                   incoming_message_buffer.length);
           continue;
         }
 
@@ -377,8 +384,6 @@ esp_err_t udp_multicast_init(device_state_handle_t device_state_handle) {
     return ESP_ERR_NO_MEM;
   }
 
-  ESP_LOGI(BASE_TAG, "Created multicast task");
-
   xReturned =
       xTaskCreate(udp_socket_task, SOCKET_TAG, STATE_TASK_STACK_DEPTH_SOCKET,
                   device_state_handle, STATE_TASK_PRIORITY_SOCKET,
@@ -392,8 +397,6 @@ esp_err_t udp_multicast_init(device_state_handle_t device_state_handle) {
     ESP_LOGE(BASE_TAG, "Failed to create socket task");
     return ESP_ERR_NO_MEM;
   }
-
-  ESP_LOGI(BASE_TAG, "Created socket task");
 
   return ESP_OK;
 }
