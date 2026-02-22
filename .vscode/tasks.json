@@ -21,6 +21,17 @@
       "problemMatcher": []
     },
     {
+      "label": "Kill Monitor Device A",
+      "type": "shell",
+      "command": "COMINTER_DEVICE_NAME=${COMINTER_DEVICE_A_NAME} COMINTER_DEVICE_PORT=${COMINTER_DEVICE_A_PORT} . ./scripts/kill_monitor.sh",
+      "presentation": {
+        "reveal": "never",
+        "panel": "dedicated",
+        "group": "kill-monitor"
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "Monitor Device B",
       "type": "shell",
       "command": "COMINTER_DEVICE_NAME=${COMINTER_DEVICE_B_NAME} COMINTER_DEVICE_PORT=${COMINTER_DEVICE_B_PORT} . ./scripts/monitor.sh",
@@ -32,15 +43,32 @@
       "problemMatcher": []
     },
     {
+      "label": "Kill Monitor Device B",
+      "type": "shell",
+      "command": "COMINTER_DEVICE_NAME=${COMINTER_DEVICE_B_NAME} COMINTER_DEVICE_PORT=${COMINTER_DEVICE_B_PORT} . ./scripts/kill_monitor.sh",
+      "presentation": {
+        "reveal": "never",
+        "panel": "dedicated",
+        "group": "kill-monitor"
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "Monitor All Devices",
       "dependsOn": ["Monitor Device A", "Monitor Device B"],
       "dependsOrder": "parallel",
       "problemMatcher": []
     },
     {
+      "label": "Kill Monitor All Devices",
+      "dependsOn": ["Kill Monitor Device A", "Kill Monitor Device B"],
+      "dependsOrder": "parallel",
+      "problemMatcher": []
+    },
+    {
       "label": "Flash & Monitor Device A",
       "type": "shell",
-      "command": "COMINTER_DEVICE_NAME=${COMINTER_DEVICE_A_NAME} COMINTER_DEVICE_PORT=${COMINTER_DEVICE_A_PORT} . ./scripts/flash-and-monitor.sh",
+      "command": "COMINTER_DEVICE_NAME=${COMINTER_DEVICE_A_NAME} COMINTER_DEVICE_PORT=${COMINTER_DEVICE_A_PORT} . ./scripts/flash_and_monitor.sh",
       "presentation": {
         "reveal": "always",
         "panel": "dedicated",
@@ -51,7 +79,7 @@
     {
       "label": "Flash & Monitor Device B",
       "type": "shell",
-      "command": "COMINTER_DEVICE_NAME=${COMINTER_DEVICE_B_NAME} COMINTER_DEVICE_PORT=${COMINTER_DEVICE_B_PORT} . ./scripts/flash-and-monitor.sh",
+      "command": "COMINTER_DEVICE_NAME=${COMINTER_DEVICE_B_NAME} COMINTER_DEVICE_PORT=${COMINTER_DEVICE_B_PORT} . ./scripts/flash_and_monitor.sh",
       "presentation": {
         "reveal": "always",
         "panel": "dedicated",
@@ -78,7 +106,7 @@
     },
     {
       "label": "Build, Flash, & Monitor All Devices",
-      "dependsOn": ["Build", "Flash & Monitor All Devices"],
+      "dependsOn": ["Kill Monitor All Devices", "Build", "Flash & Monitor All Devices"],
       "dependsOrder": "sequence",
       "problemMatcher": []
     },

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-Echo "Building...\n"
+echo "Building...\n"
 
 source ${HOME}/.espressif/tools/activate_idf_v5.5.2.sh;
 

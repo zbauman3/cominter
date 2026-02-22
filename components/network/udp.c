@@ -100,7 +100,7 @@ void udp_socket_task(void *pvParameters) {
   state_handle_t state_handle = (state_handle_t)pvParameters;
   esp_err_t create_status;
 
-  while (1) {
+  while (true) {
     xEventGroupWaitBits(state_handle->network_events,
                         STATE_NETWORK_EVENT_GOT_NEW_IP, pdTRUE, pdTRUE,
                         portMAX_DELAY);
