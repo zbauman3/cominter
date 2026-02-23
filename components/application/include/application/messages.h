@@ -5,7 +5,11 @@
 
 #include "application/state.h"
 
-#define MESSAGE_MAX_LENGTH 256
+// Looks like ESP-IDF's socket implementation doesn't support the flag for
+// "Don't Fragment". But either way this is a reasonable default.
+// Riding on the back of giants with the same max as QUIC.
+// https://datatracker.ietf.org/doc/html/rfc9000#name-datagram-size
+#define MESSAGE_MAX_LENGTH 1200
 
 typedef enum message_type_t {
   MESSAGE_TYPE_UNKNOWN = 0,
