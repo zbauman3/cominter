@@ -1,8 +1,12 @@
+#include "esp_log.h"
+#include "esp_mac.h"
 #include "freertos/idf_additions.h"
 #include <string.h>
 
 #include "application/messages.h"
 #include "application/state.h"
+
+static const char *TAG = "APPLICATION:STATE";
 
 esp_err_t state_init(state_handle_t *state_handle_ptr, int talk_btn_pin) {
   state_handle_t state_handle = (state_handle_t)malloc(sizeof(state_t));
@@ -50,9 +54,21 @@ esp_err_t state_init(state_handle_t *state_handle_ptr, int talk_btn_pin) {
   state_handle->ip_info->netmask = (esp_ip4_addr_t){0};
   state_handle->ip_info->gw = (esp_ip4_addr_t){0};
 
-  // Initialize device name to an empty string
-  state_handle->device_name = (char *)malloc(sizeof(char) * 5);
-  strcpy(state_handle->device_name, "None");
+  if (esp_read_mac(state_handle->mac_address, ESP_MAC_WIFI_STA) != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to read MAC address");
+    return ESP_ERR_INVALID_STATE;
+  };
+
+  // init the device name to the mac address
+  state_handle->device_name = (char *)malloc(sizeof(char) * 18);
+  if (state_handle->device_name == NULL) {
+    return ESP_ERR_NO_MEM;
+  }
+
+  snprintf(state_handle->device_name, 18, "%02X:%02X:%02X:%02X:%02X:%02X",
+           state_handle->mac_address[0], state_handle->mac_address[1],
+           state_handle->mac_address[2], state_handle->mac_address[3],
+           state_handle->mac_address[4], state_handle->mac_address[5]);
 
   *state_handle_ptr = state_handle;
 

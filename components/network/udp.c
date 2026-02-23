@@ -279,7 +279,8 @@ void udp_multicast_read_task(void *pvParameters) {
 
     // ----------------↓ TMP CODE ↓----------------
     message_handle_t incoming_message;
-    if (message_init(&incoming_message, MESSAGE_TYPE_UNKNOWN) != ESP_OK) {
+    if (message_init(state_handle, &incoming_message, MESSAGE_TYPE_UNKNOWN) !=
+        ESP_OK) {
       ESP_LOGE(MULTICAST_READ_TAG, "Failed to initialize message");
       continue;
     }
@@ -293,6 +294,15 @@ void udp_multicast_read_task(void *pvParameters) {
     }
 
     // ----------------↓ TMP CODE ↓----------------
+    ESP_LOGI(MULTICAST_READ_TAG,
+             "Sender MAC address: %02X:%02X:%02X:%02X:%02X:%02X",
+             incoming_message->header.sender_mac_address[0],
+             incoming_message->header.sender_mac_address[1],
+             incoming_message->header.sender_mac_address[2],
+             incoming_message->header.sender_mac_address[3],
+             incoming_message->header.sender_mac_address[4],
+             incoming_message->header.sender_mac_address[5]);
+
     switch (incoming_message->header.type) {
     case MESSAGE_TYPE_TEXT:
       ESP_LOGI(MULTICAST_READ_TAG, "%s\n", incoming_message->text.value);

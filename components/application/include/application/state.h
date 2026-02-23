@@ -22,6 +22,8 @@
 typedef struct state_t {
   esp_netif_ip_info_t *ip_info;
   char *device_name;
+  // STA MAC address
+  uint8_t mac_address[6];
   EventGroupHandle_t network_events;
   TaskHandle_t task_socket;
   TaskHandle_t task_multicast_read;

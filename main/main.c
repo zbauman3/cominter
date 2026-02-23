@@ -9,7 +9,7 @@
 #include "network/wifi.h"
 #include "storage/nvs.h"
 
-static char *TAG = "MULTICAST";
+static char *TAG = "APP_MAIN";
 
 #define TALK_BTN_PIN GPIO_NUM_35
 
@@ -33,10 +33,15 @@ esp_err_t init_app() {
     return ret;
   }
 
+  // the mac address is set as the name before we get the name from NVS
+  ESP_LOGI(TAG, "MAC address string: %s", state_handle->device_name);
+
   ret = storage_nvs_get_name(state_handle);
   if (ret != ESP_OK) {
     return ret;
   }
+
+  ESP_LOGI(TAG, "Device name: %s", state_handle->device_name);
 
   ret = udp_multicast_init(state_handle);
   if (ret != ESP_OK) {

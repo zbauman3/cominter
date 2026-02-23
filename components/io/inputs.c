@@ -31,7 +31,8 @@ void io_inputs_task(void *pvParameters) {
       continue;
     }
 
-    if (message_init_text(&outgoing_message, message_text) != ESP_OK) {
+    if (message_init_text(state_handle, &outgoing_message, message_text) !=
+        ESP_OK) {
       ESP_LOGE(TASK_TAG, "Failed to initialize message");
       continue;
     }

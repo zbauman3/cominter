@@ -5,7 +5,8 @@
 
 static const char *BASE_TAG = "APPLICATION:MESSAGES";
 
-esp_err_t message_init(message_handle_t *message_ptr, message_type_t type) {
+esp_err_t message_init(state_handle_t state_handle,
+                       message_handle_t *message_ptr, message_type_t type) {
   message_handle_t message = (message_handle_t)malloc(sizeof(message_t));
   if (message == NULL) {
     return ESP_ERR_NO_MEM;
@@ -13,6 +14,7 @@ esp_err_t message_init(message_handle_t *message_ptr, message_type_t type) {
 
   message->header.type = type;
   message->header.length = 0;
+  memcpy(message->header.sender_mac_address, state_handle->mac_address, 6);
 
   switch (type) {
   case MESSAGE_TYPE_TEXT:
@@ -33,10 +35,11 @@ esp_err_t message_init(message_handle_t *message_ptr, message_type_t type) {
   return ESP_OK;
 }
 
-esp_err_t message_init_text(message_handle_t *message_ptr, char *value) {
+esp_err_t message_init_text(state_handle_t state_handle,
+                            message_handle_t *message_ptr, char *value) {
   esp_err_t ret = ESP_OK;
 
-  ret = message_init(message_ptr, MESSAGE_TYPE_TEXT);
+  ret = message_init(state_handle, message_ptr, MESSAGE_TYPE_TEXT);
   if (ret != ESP_OK) {
     return ret;
   }
@@ -53,11 +56,12 @@ esp_err_t message_init_text(message_handle_t *message_ptr, char *value) {
   return ESP_OK;
 }
 
-esp_err_t message_init_audio(message_handle_t *message_ptr, uint8_t *value,
+esp_err_t message_init_audio(state_handle_t state_handle,
+                             message_handle_t *message_ptr, uint8_t *value,
                              int length) {
   esp_err_t ret = ESP_OK;
 
-  ret = message_init(message_ptr, MESSAGE_TYPE_AUDIO);
+  ret = message_init(state_handle, message_ptr, MESSAGE_TYPE_AUDIO);
   if (ret != ESP_OK) {
     return ret;
   }

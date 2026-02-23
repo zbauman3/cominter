@@ -3,6 +3,8 @@
 #include "esp_err.h"
 #include <stdint.h>
 
+#include "application/state.h"
+
 #define MESSAGE_MAX_LENGTH 256
 
 typedef enum message_type_t {
@@ -22,6 +24,7 @@ typedef struct payload_audio_t {
 typedef struct message_header_t {
   message_type_t type;
   int length;
+  uint8_t sender_mac_address[6];
 } message_header_t;
 
 typedef struct message_t {
@@ -34,9 +37,12 @@ typedef struct message_t {
 
 typedef message_t *message_handle_t;
 
-esp_err_t message_init(message_handle_t *message_ptr, message_type_t type);
-esp_err_t message_init_text(message_handle_t *message_ptr, char *value);
-esp_err_t message_init_audio(message_handle_t *message_ptr, uint8_t *value,
+esp_err_t message_init(state_handle_t state_handle,
+                       message_handle_t *message_ptr, message_type_t type);
+esp_err_t message_init_text(state_handle_t state_handle,
+                            message_handle_t *message_ptr, char *value);
+esp_err_t message_init_audio(state_handle_t state_handle,
+                             message_handle_t *message_ptr, uint8_t *value,
                              int length);
 
 // it is expected that the message header length is already set
