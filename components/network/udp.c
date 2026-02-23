@@ -241,15 +241,24 @@ void udp_multicast_read_task(void *pvParameters) {
   state_handle_t state_handle = (state_handle_t)pvParameters;
   fd_set rfds;
 
-  while (1) {
+  while (true) {
     xEventGroupWaitBits(state_handle->network_events,
                         STATE_NETWORK_EVENT_SOCKET_READY, pdFALSE, pdFALSE,
                         portMAX_DELAY);
 
     FD_ZERO(&rfds);
     FD_SET(state_handle->socket, &rfds);
-
+    // no timeout, so we'll block forever until data is received.
     int s = select(state_handle->socket + 1, &rfds, NULL, NULL, NULL);
+
+    // The socket could have been closed while waiting.
+    // So we need to check if it's still open.
+    EventBits_t bits_waiting = xEventGroupGetBits(state_handle->network_events);
+    if (!(bits_waiting & STATE_NETWORK_EVENT_SOCKET_READY)) {
+      ESP_LOGD(MULTICAST_READ_TAG, "Socket not ready, skipping read");
+      continue;
+    }
+
     if (s < 0) {
       ESP_LOGE(MULTICAST_READ_TAG, "Select failed: errno %d", errno);
       continue;
@@ -305,23 +314,40 @@ void udp_multicast_read_task(void *pvParameters) {
 
 void udp_multicast_write_task(void *pvParameters) {
   state_handle_t state_handle = (state_handle_t)pvParameters;
+  message_handle_t outgoing_message;
 
-  while (1) {
+  while (true) {
     xEventGroupWaitBits(state_handle->network_events,
                         STATE_NETWORK_EVENT_SOCKET_READY, pdFALSE, pdFALSE,
                         portMAX_DELAY);
 
-    // ----------------↓ TMP CODE ↓----------------
-    message_handle_t outgoing_message;
-    char message_text[25];
-    // +6 for the colon, space, "Hi!", and null terminator
-    int length = (strlen(state_handle->device_name) * sizeof(char)) + 6;
-    snprintf(message_text, length, "%s: Hi!", state_handle->device_name);
-    if (message_init_text(&outgoing_message, message_text) != ESP_OK) {
-      ESP_LOGE(MULTICAST_WRITE_TAG, "Failed to initialize message");
-      continue;
+    // wait for the message queue to have a message
+    BaseType_t xReturned = xQueueReceive(state_handle->message_outgoing_queue,
+                                         &outgoing_message, portMAX_DELAY);
+
+    // The socket could have been closed while waiting.
+    // So we need to check if it's still open.
+    EventBits_t bits_waiting = xEventGroupGetBits(state_handle->network_events);
+    if (!(bits_waiting & STATE_NETWORK_EVENT_SOCKET_READY)) {
+      ESP_LOGD(MULTICAST_WRITE_TAG, "Socket not ready, skipping write");
+
+      xReturned = xQueueSendToFront(state_handle->message_outgoing_queue,
+                                    &outgoing_message, 0);
+      if (xReturned == pdPASS) {
+        // intentionally do not clean up the message here.
+        // it was put back in the queue to be cleaned up by the next iteration.
+        continue;
+      }
+
+      ESP_LOGE(MULTICAST_WRITE_TAG,
+               "Failed to return message to queue. Dropping message.");
+      goto udp_multicast_write_task_end;
     }
-    // ----------------↑ TMP CODE ↑----------------
+
+    if (xReturned != pdPASS) {
+      ESP_LOGE(MULTICAST_WRITE_TAG, "Failed to receive message from queue");
+      goto udp_multicast_write_task_end;
+    }
 
     ESP_LOGI(MULTICAST_WRITE_TAG, "----Write %s----",
              state_handle->device_name);
@@ -334,10 +360,9 @@ void udp_multicast_write_task(void *pvParameters) {
       ESP_LOGE(MULTICAST_WRITE_TAG, "Failed to send message");
     }
 
-    // ----------------↓ TMP CODE ↓----------------
+  udp_multicast_write_task_end:
     message_free(outgoing_message);
-    vTaskDelay(2000 / portTICK_PERIOD_MS);
-    // ----------------↑ TMP CODE ↑----------------
+    outgoing_message = NULL;
   }
 }
 

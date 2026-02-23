@@ -1,6 +1,7 @@
 #include "driver/gpio.h"
 #include "esp_log.h"
 
+#include "application/messages.h"
 #include "io/inputs.h"
 
 static const char *BASE_TAG = "IO:INPUTS";
@@ -14,13 +15,36 @@ void IRAM_ATTR io_inputs_talk_btn_isr(void *arg) {
 
 void io_inputs_task(void *pvParameters) {
   state_handle_t state_handle = (state_handle_t)pvParameters;
-
   uint32_t io_num;
+  message_handle_t outgoing_message;
+  BaseType_t xReturned;
+
+  // hard-code a message of the device name and hi!
+  char message_text[25];
+  // +6 for the ": Hi!" string and null terminator
+  int length = (strlen(state_handle->device_name) + 6) * sizeof(char);
+  snprintf(message_text, length, "%s: Hi!", state_handle->device_name);
+
   while (1) {
     xQueueReceive(state_handle->inputs_queue, &io_num, portMAX_DELAY);
-    if (io_num == state_handle->pins.talk_btn) {
-      ESP_LOGI(TASK_TAG, "Talk button pressed");
+    if (io_num != state_handle->pins.talk_btn) {
+      continue;
     }
+
+    if (message_init_text(&outgoing_message, message_text) != ESP_OK) {
+      ESP_LOGE(TASK_TAG, "Failed to initialize message");
+      continue;
+    }
+
+    xReturned = xQueueSendToBack(state_handle->message_outgoing_queue,
+                                 &outgoing_message, (500 / portTICK_PERIOD_MS));
+    if (xReturned != pdPASS) {
+      ESP_LOGE(TASK_TAG, "Failed to send message to queue. Dropping message.");
+      message_free(outgoing_message);
+    }
+
+    // the queue will now own the message.
+    outgoing_message = NULL;
   }
 }
 

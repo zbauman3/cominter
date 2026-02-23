@@ -30,6 +30,10 @@ typedef struct state_t {
   int socket;
   struct addrinfo *multicast_addr_info;
   QueueHandle_t inputs_queue;
+  // This contains a pointer to a message.
+  // Readers must free the message after use.
+  // Writers must not interact with the message.
+  QueueHandle_t message_outgoing_queue;
   struct {
     int talk_btn;
   } pins;

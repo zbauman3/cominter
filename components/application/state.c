@@ -1,7 +1,8 @@
+#include "freertos/idf_additions.h"
 #include <string.h>
 
+#include "application/messages.h"
 #include "application/state.h"
-#include "freertos/idf_additions.h"
 
 esp_err_t state_init(state_handle_t *state_handle_ptr, int talk_btn_pin) {
   state_handle_t state_handle = (state_handle_t)malloc(sizeof(state_t));
@@ -36,6 +37,12 @@ esp_err_t state_init(state_handle_t *state_handle_ptr, int talk_btn_pin) {
 
   state_handle->inputs_queue = xQueueCreate(10, sizeof(uint32_t));
   if (state_handle->inputs_queue == NULL) {
+    return ESP_ERR_NO_MEM;
+  }
+
+  state_handle->message_outgoing_queue =
+      xQueueCreate(10, sizeof(message_handle_t));
+  if (state_handle->message_outgoing_queue == NULL) {
     return ESP_ERR_NO_MEM;
   }
 
