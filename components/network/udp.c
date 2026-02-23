@@ -13,7 +13,8 @@
 
 static const char *BASE_TAG = "NETWORK:UDP";
 static const char *SOCKET_TAG = "NETWORK:UDP:SOCKET";
-static const char *MULTICAST_TAG = "NETWORK:UDP:MULTICAST";
+static const char *MULTICAST_WRITE_TAG = "NETWORK:UDP:MULTICAST:WRITE";
+static const char *MULTICAST_READ_TAG = "NETWORK:UDP:MULTICAST:READ";
 
 // ----------------
 // Socket Stuff
@@ -85,6 +86,24 @@ esp_err_t udp_socket_create(state_handle_t state_handle) {
                     ESP_ERR_INVALID_STATE, udp_multicast_socket_create_end,
                     SOCKET_TAG, "Failed to set IP_ADD_MEMBERSHIP: %d", errno);
 
+  struct addrinfo hints = {
+      .ai_flags = AI_PASSIVE,
+      .ai_socktype = SOCK_DGRAM,
+      .ai_family = AF_INET,
+  };
+
+  ESP_GOTO_ON_FALSE(getaddrinfo(CONFIG_MULTICAST_ADDR, NULL, &hints,
+                                &state_handle->multicast_addr_info) >= 0,
+                    ESP_ERR_INVALID_STATE, udp_multicast_socket_create_end,
+                    SOCKET_TAG, "Failed to get multicast address info");
+
+  ESP_GOTO_ON_FALSE(state_handle->multicast_addr_info != 0,
+                    ESP_ERR_INVALID_STATE, udp_multicast_socket_create_end,
+                    SOCKET_TAG, "getaddrinfo() did not return any addresses");
+
+  ((struct sockaddr_in *)state_handle->multicast_addr_info->ai_addr)->sin_port =
+      htons(CONFIG_MULTICAST_PORT);
+
 udp_multicast_socket_create_end:
   if (ret != ESP_OK) {
     if (state_handle->socket >= 0) {
@@ -147,17 +166,17 @@ esp_err_t socket_receive_message(int socket, message_handle_t message) {
   length = recv(socket, buffer, MESSAGE_MAX_LENGTH + 1, 0);
 
   if (length < 0) {
-    ESP_LOGE(MULTICAST_TAG, "multicast recvfrom failed: errno %d", errno);
+    ESP_LOGE(MULTICAST_READ_TAG, "multicast recvfrom failed: errno %d", errno);
     return ESP_ERR_INVALID_STATE;
   }
 
   if (length < sizeof(message_header_t)) {
-    ESP_LOGE(MULTICAST_TAG, "Message length too short: %d", length);
+    ESP_LOGE(MULTICAST_READ_TAG, "Message length too short: %d", length);
     return ESP_ERR_INVALID_STATE;
   }
 
   if (length > MESSAGE_MAX_LENGTH) {
-    ESP_LOGE(MULTICAST_TAG, "Message length too long: %d", length);
+    ESP_LOGE(MULTICAST_READ_TAG, "Message length too long: %d", length);
     return ESP_ERR_INVALID_STATE;
   }
 
@@ -165,14 +184,14 @@ esp_err_t socket_receive_message(int socket, message_handle_t message) {
 
   int payload_len = length - sizeof(message_header_t);
   if (payload_len != message->header.length) {
-    ESP_LOGE(MULTICAST_TAG, "Payload length mismatch: expected %d, got %d",
+    ESP_LOGE(MULTICAST_READ_TAG, "Payload length mismatch: expected %d, got %d",
              message->header.length, payload_len);
     return ESP_ERR_INVALID_STATE;
   }
 
   if (message_set_payload(message, buffer + sizeof(message_header_t)) !=
       ESP_OK) {
-    ESP_LOGE(MULTICAST_TAG, "Failed to set payload");
+    ESP_LOGE(MULTICAST_READ_TAG, "Failed to set payload");
     return ESP_ERR_INVALID_STATE;
   }
 
@@ -185,7 +204,7 @@ esp_err_t socket_send_message(int socket, message_handle_t message,
   int length = sizeof(message_header_t) + message->header.length;
 
   if (length > MESSAGE_MAX_LENGTH) {
-    ESP_LOGE(MULTICAST_TAG, "Message length too long: %d", length);
+    ESP_LOGE(MULTICAST_WRITE_TAG, "Message length too long: %d", length);
     return ESP_ERR_INVALID_ARG;
   }
 
@@ -204,20 +223,87 @@ esp_err_t socket_send_message(int socket, message_handle_t message,
            message->header.length);
     break;
   default:
-    ESP_LOGE(MULTICAST_TAG, "Unknown message type: %d", message->header.type);
+    ESP_LOGE(MULTICAST_WRITE_TAG, "Unknown message type: %d",
+             message->header.type);
     return ESP_ERR_INVALID_ARG;
   }
 
   if (sendto(socket, buffer, length, 0, addr_info->ai_addr,
              addr_info->ai_addrlen) < 0) {
-    ESP_LOGE(MULTICAST_TAG, "sendto failed: errno %d", errno);
+    ESP_LOGE(MULTICAST_WRITE_TAG, "sendto failed: errno %d", errno);
     return ESP_ERR_INVALID_STATE;
   }
 
   return ESP_OK;
 }
 
-void udp_multicast_task(void *pvParameters) {
+void udp_multicast_read_task(void *pvParameters) {
+  state_handle_t state_handle = (state_handle_t)pvParameters;
+  fd_set rfds;
+
+  while (1) {
+    xEventGroupWaitBits(state_handle->network_events,
+                        STATE_NETWORK_EVENT_SOCKET_READY, pdFALSE, pdFALSE,
+                        portMAX_DELAY);
+
+    FD_ZERO(&rfds);
+    FD_SET(state_handle->socket, &rfds);
+
+    int s = select(state_handle->socket + 1, &rfds, NULL, NULL, NULL);
+    if (s < 0) {
+      ESP_LOGE(MULTICAST_READ_TAG, "Select failed: errno %d", errno);
+      continue;
+    }
+
+    ESP_LOGI(MULTICAST_READ_TAG, "----Read %s----", state_handle->device_name);
+
+    // no data
+    if (s == 0) {
+      ESP_LOGD(MULTICAST_READ_TAG, "No data received\n");
+      continue;
+    }
+
+    // timeout – shouldn't happen?
+    if (!FD_ISSET(state_handle->socket, &rfds)) {
+      continue;
+    }
+
+    // ----------------↓ TMP CODE ↓----------------
+    message_handle_t incoming_message;
+    if (message_init(&incoming_message, MESSAGE_TYPE_UNKNOWN) != ESP_OK) {
+      ESP_LOGE(MULTICAST_READ_TAG, "Failed to initialize message");
+      continue;
+    }
+    // ----------------↑ TMP CODE ↑----------------
+
+    if (socket_receive_message(state_handle->socket, incoming_message) !=
+        ESP_OK) {
+      ESP_LOGE(MULTICAST_READ_TAG, "Failed to receive message");
+      message_free(incoming_message);
+      continue;
+    }
+
+    // ----------------↓ TMP CODE ↓----------------
+    switch (incoming_message->header.type) {
+    case MESSAGE_TYPE_TEXT:
+      ESP_LOGI(MULTICAST_READ_TAG, "%s\n", incoming_message->text.value);
+      break;
+    case MESSAGE_TYPE_AUDIO:
+      ESP_LOGI(MULTICAST_READ_TAG, "Audio message of length %d received\n",
+               incoming_message->header.length);
+      break;
+    default:
+      ESP_LOGE(MULTICAST_READ_TAG, "Unknown message type: %d\n",
+               incoming_message->header.type);
+      break;
+    }
+
+    message_free(incoming_message);
+    // ----------------↑ TMP CODE ↑----------------
+  }
+}
+
+void udp_multicast_write_task(void *pvParameters) {
   state_handle_t state_handle = (state_handle_t)pvParameters;
 
   while (1) {
@@ -225,114 +311,33 @@ void udp_multicast_task(void *pvParameters) {
                         STATE_NETWORK_EVENT_SOCKET_READY, pdFALSE, pdFALSE,
                         portMAX_DELAY);
 
-    struct timeval tv = {
-        .tv_sec = 2,
-        .tv_usec = 0,
-    };
-    fd_set rfds;
-    FD_ZERO(&rfds);
-    FD_SET(state_handle->socket, &rfds);
-
-    int s = select(state_handle->socket + 1, &rfds, NULL, NULL, &tv);
-    if (s < 0) {
-      ESP_LOGE(MULTICAST_TAG, "Select failed: errno %d", errno);
+    // ----------------↓ TMP CODE ↓----------------
+    message_handle_t outgoing_message;
+    char message_text[25];
+    // +6 for the colon, space, "Hi!", and null terminator
+    int length = (strlen(state_handle->device_name) * sizeof(char)) + 6;
+    snprintf(message_text, length, "%s: Hi!", state_handle->device_name);
+    if (message_init_text(&outgoing_message, message_text) != ESP_OK) {
+      ESP_LOGE(MULTICAST_WRITE_TAG, "Failed to initialize message");
       continue;
     }
+    // ----------------↑ TMP CODE ↑----------------
 
-    ESP_LOGI(MULTICAST_TAG, "----%s----", state_handle->device_name);
+    ESP_LOGI(MULTICAST_WRITE_TAG, "----Write %s----",
+             state_handle->device_name);
 
-    if (s > 0) {
-      if (!FD_ISSET(state_handle->socket, &rfds)) {
-        continue;
-      }
+    ESP_LOGI(MULTICAST_WRITE_TAG, "Sending message to %s:%d\n",
+             CONFIG_MULTICAST_ADDR, CONFIG_MULTICAST_PORT);
 
-      // ----------------↓ TMP CODE ↓----------------
-      message_handle_t incoming_message;
-      if (message_init(&incoming_message, MESSAGE_TYPE_UNKNOWN) != ESP_OK) {
-        ESP_LOGE(MULTICAST_TAG, "Failed to initialize message");
-        continue;
-      }
-      // ----------------↑ TMP CODE ↑----------------
-
-      if (socket_receive_message(state_handle->socket, incoming_message) !=
-          ESP_OK) {
-        ESP_LOGE(MULTICAST_TAG, "Failed to receive message");
-        message_free(incoming_message);
-        continue;
-      }
-
-      // ----------------↓ TMP CODE ↓----------------
-      switch (incoming_message->header.type) {
-      case MESSAGE_TYPE_TEXT:
-        ESP_LOGI(MULTICAST_TAG, "%s\n", incoming_message->text.value);
-        break;
-      case MESSAGE_TYPE_AUDIO:
-        ESP_LOGI(MULTICAST_TAG, "audio message of length %d received\n",
-                 incoming_message->header.length);
-        break;
-      default:
-        ESP_LOGE(MULTICAST_TAG, "Unknown message type: %d",
-                 incoming_message->header.type);
-        break;
-      }
-
-      message_free(incoming_message);
-      // ----------------↑ TMP CODE ↑----------------
-    } else { // s == 0
-      // ----------------↓ TMP CODE ↓----------------
-      message_handle_t outgoing_message;
-      char message_text[25];
-      // +6 for the colon, space, "Hi!", and null terminator
-      int length = (strlen(state_handle->device_name) * sizeof(char)) + 6;
-      snprintf(message_text, length, "%s: Hi!", state_handle->device_name);
-      if (message_init_text(&outgoing_message, message_text) != ESP_OK) {
-        ESP_LOGE(MULTICAST_TAG, "Failed to initialize message");
-        continue;
-      }
-      // ----------------↑ TMP CODE ↑----------------
-
-      // can likely hoist a lot of this and not do it every time before sending
-      struct addrinfo hints = {
-          .ai_flags = AI_PASSIVE,
-          .ai_socktype = SOCK_DGRAM,
-          .ai_family = AF_INET,
-      };
-      struct addrinfo *addr_info;
-
-      int err = getaddrinfo(CONFIG_MULTICAST_ADDR, NULL, &hints, &addr_info);
-      if (err < 0) {
-        ESP_LOGE(MULTICAST_TAG,
-                 "getaddrinfo() failed for destination address. error: %d",
-                 err);
-        message_free(outgoing_message);
-        continue;
-      }
-
-      if (addr_info == 0) {
-        ESP_LOGE(MULTICAST_TAG, "getaddrinfo() did not return any addresses");
-        freeaddrinfo(addr_info);
-        message_free(outgoing_message);
-        continue;
-      }
-
-      ((struct sockaddr_in *)addr_info->ai_addr)->sin_port =
-          htons(CONFIG_MULTICAST_PORT);
-
-      ESP_LOGI(MULTICAST_TAG, "Sending message to %s:%d\n",
-               CONFIG_MULTICAST_ADDR, CONFIG_MULTICAST_PORT);
-
-      if (socket_send_message(state_handle->socket, outgoing_message,
-                              addr_info) != ESP_OK) {
-        ESP_LOGE(MULTICAST_TAG, "Failed to send message");
-      }
-
-      // fail or not, we need to free the resources
-      freeaddrinfo(addr_info);
-
-      // ----------------↓ TMP CODE ↓----------------
-      message_free(outgoing_message);
-      // ----------------↑ TMP CODE ↑----------------
+    if (socket_send_message(state_handle->socket, outgoing_message,
+                            state_handle->multicast_addr_info) != ESP_OK) {
+      ESP_LOGE(MULTICAST_WRITE_TAG, "Failed to send message");
     }
+
+    // ----------------↓ TMP CODE ↓----------------
+    message_free(outgoing_message);
+    vTaskDelay(2000 / portTICK_PERIOD_MS);
+    // ----------------↑ TMP CODE ↑----------------
   }
 }
 
@@ -343,17 +348,30 @@ void udp_multicast_task(void *pvParameters) {
 esp_err_t udp_multicast_init(state_handle_t state_handle) {
   BaseType_t xReturned;
 
-  xReturned =
-      xTaskCreate(udp_multicast_task, MULTICAST_TAG,
-                  STATE_TASK_STACK_DEPTH_MULTICAST, state_handle,
-                  STATE_TASK_PRIORITY_MULTICAST, &state_handle->task_multicast);
+  xReturned = xTaskCreate(udp_multicast_write_task, MULTICAST_WRITE_TAG,
+                          STATE_TASK_STACK_DEPTH_MULTICAST, state_handle,
+                          STATE_TASK_PRIORITY_MULTICAST,
+                          &state_handle->task_multicast_write);
 
   if (xReturned != pdPASS) {
-    ESP_LOGE(BASE_TAG, "Failed to create multicast task");
+    ESP_LOGE(BASE_TAG, "Failed to create multicast write task");
     return ESP_ERR_INVALID_STATE;
   }
-  if (state_handle->task_multicast == NULL) {
-    ESP_LOGE(BASE_TAG, "Failed to create multicast task");
+  if (state_handle->task_multicast_write == NULL) {
+    ESP_LOGE(BASE_TAG, "Failed to create multicast write task");
+    return ESP_ERR_NO_MEM;
+  }
+
+  xReturned = xTaskCreate(udp_multicast_read_task, MULTICAST_READ_TAG,
+                          STATE_TASK_STACK_DEPTH_MULTICAST, state_handle,
+                          STATE_TASK_PRIORITY_MULTICAST,
+                          &state_handle->task_multicast_read);
+  if (xReturned != pdPASS) {
+    ESP_LOGE(BASE_TAG, "Failed to create multicast read task");
+    return ESP_ERR_INVALID_STATE;
+  }
+  if (state_handle->task_multicast_read == NULL) {
+    ESP_LOGE(BASE_TAG, "Failed to create multicast read task");
     return ESP_ERR_NO_MEM;
   }
 

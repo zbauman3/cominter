@@ -17,7 +17,14 @@ esp_err_t state_init(state_handle_t *state_handle_ptr, int talk_btn_pin) {
     return ESP_ERR_NO_MEM;
   }
 
-  state_handle->task_multicast = NULL;
+  state_handle->multicast_addr_info =
+      (struct addrinfo *)malloc(sizeof(struct addrinfo));
+  if (state_handle->multicast_addr_info == NULL) {
+    return ESP_ERR_NO_MEM;
+  }
+
+  state_handle->task_multicast_read = NULL;
+  state_handle->task_multicast_write = NULL;
   state_handle->task_socket = NULL;
   state_handle->task_inputs = NULL;
   state_handle->socket = -1;
