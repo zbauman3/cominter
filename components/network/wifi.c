@@ -15,27 +15,27 @@ static void event_handler(void *arg, esp_event_base_t event_base,
                           int32_t event_id, void *event_data) {
 
   if (event_base == IP_EVENT) {
-    state_handle_t state_handle = (state_handle_t)arg;
+    app_state_handle_t state_handle = (app_state_handle_t)arg;
 
     switch (event_id) {
     case IP_EVENT_STA_GOT_IP: {
       ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
       ESP_LOGD(TAG, "EVENT - IP_EVENT_STA_GOT_IP");
       ESP_LOGD(TAG, "IPV4 is: " IPSTR, IP2STR(&event->ip_info.ip));
-      memcpy(state_handle->ip_info, &event->ip_info,
+      memcpy(state_handle->network.ip_info, &event->ip_info,
              sizeof(esp_netif_ip_info_t));
       // signal that we've got a new IP so that the socket can be created
-      xEventGroupSetBits(state_handle->network_events,
-                         STATE_NETWORK_EVENT_GOT_NEW_IP);
+      xEventGroupSetBits(state_handle->event_groups.network_events,
+                         APP_STATE_NETWORK_EVENT_GOT_NEW_IP);
       break;
     }
     case IP_EVENT_STA_LOST_IP: {
       ESP_LOGD(TAG, "EVENT - IP_EVENT_STA_LOST_IP");
       // Close the socket, it will be recreated when we get a new IP
-      udp_socket_close(state_handle);
-      state_handle->ip_info->ip = (esp_ip4_addr_t){0};
-      state_handle->ip_info->netmask = (esp_ip4_addr_t){0};
-      state_handle->ip_info->gw = (esp_ip4_addr_t){0};
+      network_udp_socket_close(state_handle);
+      state_handle->network.ip_info->ip = (esp_ip4_addr_t){0};
+      state_handle->network.ip_info->netmask = (esp_ip4_addr_t){0};
+      state_handle->network.ip_info->gw = (esp_ip4_addr_t){0};
       break;
     }
     default: {
@@ -75,7 +75,7 @@ static void event_handler(void *arg, esp_event_base_t event_base,
 
 // Using overview from:
 // https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/wifi.html#esp32-wi-fi-station-general-scenario
-esp_err_t wifi_init(state_handle_t state_handle) {
+esp_err_t network_wifi_init(app_state_handle_t state_handle) {
   ESP_LOGD(TAG, "Starting WiFi connection to \"%s\"", CONFIG_WIFI_SSID);
 
   esp_err_t err = ESP_OK;

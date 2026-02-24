@@ -13,7 +13,7 @@ static char *TAG = "APP_MAIN";
 
 #define TALK_BTN_PIN GPIO_NUM_35
 
-static state_handle_t state_handle;
+static app_state_handle_t state_handle;
 
 esp_err_t init_app() {
   esp_err_t ret = ESP_OK;
@@ -28,22 +28,22 @@ esp_err_t init_app() {
     return ret;
   }
 
-  ret = state_init(&state_handle, TALK_BTN_PIN);
+  ret = app_state_init(&state_handle, TALK_BTN_PIN);
   if (ret != ESP_OK) {
     return ret;
   }
 
   // the mac address is set as the name before we get the name from NVS
-  ESP_LOGI(TAG, "MAC address string: %s", state_handle->device_name);
+  ESP_LOGI(TAG, "MAC address string: %s", state_handle->device_info.name);
 
   ret = storage_nvs_get_name(state_handle);
   if (ret != ESP_OK) {
     return ret;
   }
 
-  ESP_LOGI(TAG, "Device name: %s", state_handle->device_name);
+  ESP_LOGI(TAG, "Device name: %s", state_handle->device_info.name);
 
-  ret = udp_multicast_init(state_handle);
+  ret = network_udp_init(state_handle);
   if (ret != ESP_OK) {
     return ret;
   }
@@ -53,7 +53,7 @@ esp_err_t init_app() {
     return ret;
   }
 
-  ret = wifi_init(state_handle);
+  ret = network_wifi_init(state_handle);
   if (ret != ESP_OK) {
     return ret;
   }

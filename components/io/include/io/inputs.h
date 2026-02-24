@@ -4,4 +4,4 @@
 
 #include "application/state.h"
 
-esp_err_t io_inputs_init(state_handle_t state_handle);
+esp_err_t io_inputs_init(app_state_handle_t state_handle);

@@ -8,40 +8,34 @@ static const char *BASE_TAG = "IO:INPUTS";
 static const char *TASK_TAG = "IO:INPUTS:TASK";
 
 void IRAM_ATTR io_inputs_talk_btn_isr(void *arg) {
-  state_handle_t state_handle = (state_handle_t)arg;
-  xQueueSendFromISR(state_handle->inputs_queue, &state_handle->pins.talk_btn,
-                    NULL);
+  app_state_handle_t state_handle = (app_state_handle_t)arg;
+  xQueueSendFromISR(state_handle->queues.inputs_queue,
+                    &state_handle->pins.talk_btn, NULL);
 }
 
 void io_inputs_task(void *pvParameters) {
-  state_handle_t state_handle = (state_handle_t)pvParameters;
+  app_state_handle_t state_handle = (app_state_handle_t)pvParameters;
   uint32_t io_num;
-  message_handle_t outgoing_message;
+  app_message_handle_t outgoing_message;
   BaseType_t xReturned;
 
-  // hard-code a message of the device name and hi!
-  char message_text[25];
-  // +6 for the ": Hi!" string and null terminator
-  int length = (strlen(state_handle->device_name) + 6) * sizeof(char);
-  snprintf(message_text, length, "%s: Hi!", state_handle->device_name);
-
   while (1) {
-    xQueueReceive(state_handle->inputs_queue, &io_num, portMAX_DELAY);
+    xQueueReceive(state_handle->queues.inputs_queue, &io_num, portMAX_DELAY);
     if (io_num != state_handle->pins.talk_btn) {
       continue;
     }
 
-    if (message_init_text(state_handle, &outgoing_message, message_text) !=
+    if (app_message_init_text(state_handle, &outgoing_message, "Hi!", NULL) !=
         ESP_OK) {
       ESP_LOGE(TASK_TAG, "Failed to initialize message");
       continue;
     }
 
-    xReturned = xQueueSendToBack(state_handle->message_outgoing_queue,
+    xReturned = xQueueSendToBack(state_handle->queues.message_outgoing_queue,
                                  &outgoing_message, (500 / portTICK_PERIOD_MS));
     if (xReturned != pdPASS) {
       ESP_LOGE(TASK_TAG, "Failed to send message to queue. Dropping message.");
-      message_free(outgoing_message);
+      app_message_free(outgoing_message);
     }
 
     // the queue will now own the message.
@@ -49,7 +43,7 @@ void io_inputs_task(void *pvParameters) {
   }
 }
 
-esp_err_t io_inputs_init(state_handle_t state_handle) {
+esp_err_t io_inputs_init(app_state_handle_t state_handle) {
   // zero-initialize the config structure.
   gpio_config_t io_conf = {};
   io_conf.intr_type = GPIO_INTR_NEGEDGE;
@@ -70,15 +64,15 @@ esp_err_t io_inputs_init(state_handle_t state_handle) {
                        state_handle);
 
   BaseType_t xReturned = xTaskCreate(
-      io_inputs_task, TASK_TAG, STATE_TASK_STACK_DEPTH_INPUTS, state_handle,
-      STATE_TASK_PRIORITY_INPUTS, &state_handle->task_inputs);
+      io_inputs_task, TASK_TAG, APP_STATE_TASK_STACK_DEPTH_INPUTS, state_handle,
+      APP_STATE_TASK_PRIORITY_INPUTS, &state_handle->tasks.inputs_task);
 
   if (xReturned != pdPASS) {
     ESP_LOGE(BASE_TAG, "Failed to create inputs task");
     return ESP_ERR_INVALID_STATE;
   }
 
-  if (state_handle->task_inputs == NULL) {
+  if (state_handle->tasks.inputs_task == NULL) {
     ESP_LOGE(BASE_TAG, "Failed to create inputs task");
     return ESP_ERR_NO_MEM;
   }
