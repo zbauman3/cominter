@@ -1,5 +1,5 @@
 idf_component_register(
-  SRCS "state.c" "messages.c"
+  SRCS "state.c"
   INCLUDE_DIRS "include"
   REQUIRES "esp_netif"
   PRIV_REQUIRES "esp_timer"

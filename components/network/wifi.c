@@ -1,3 +1,4 @@
+#include "esp_check.h"
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_wifi.h"
@@ -5,7 +6,6 @@
 #include "freertos/event_groups.h"
 #include <string.h>
 
-#include "network/udp.h"
 #include "network/wifi.h"
 
 static const char *TAG = "NETWORK:WIFI";
@@ -15,27 +15,27 @@ static void event_handler(void *arg, esp_event_base_t event_base,
                           int32_t event_id, void *event_data) {
 
   if (event_base == IP_EVENT) {
-    app_state_handle_t state_handle = (app_state_handle_t)arg;
+    network_wifi_handle_t wifi_handle = (network_wifi_handle_t)arg;
 
     switch (event_id) {
     case IP_EVENT_STA_GOT_IP: {
       ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
       ESP_LOGD(TAG, "EVENT - IP_EVENT_STA_GOT_IP");
       ESP_LOGD(TAG, "IPV4 is: " IPSTR, IP2STR(&event->ip_info.ip));
-      memcpy(state_handle->network.ip_info, &event->ip_info,
+      memcpy(wifi_handle->udp->ip_info, &event->ip_info,
              sizeof(esp_netif_ip_info_t));
       // signal that we've got a new IP so that the socket can be created
-      xEventGroupSetBits(state_handle->event_groups.network_events,
-                         APP_STATE_NETWORK_EVENT_GOT_NEW_IP);
+      xEventGroupSetBits(wifi_handle->events->group_handle,
+                         NETWORK_EVENT_GOT_NEW_IP);
       break;
     }
     case IP_EVENT_STA_LOST_IP: {
       ESP_LOGD(TAG, "EVENT - IP_EVENT_STA_LOST_IP");
       // Close the socket, it will be recreated when we get a new IP
-      network_udp_socket_close(state_handle);
-      state_handle->network.ip_info->ip = (esp_ip4_addr_t){0};
-      state_handle->network.ip_info->netmask = (esp_ip4_addr_t){0};
-      state_handle->network.ip_info->gw = (esp_ip4_addr_t){0};
+      network_udp_socket_close(wifi_handle->udp);
+      wifi_handle->udp->ip_info->ip = (esp_ip4_addr_t){0};
+      wifi_handle->udp->ip_info->netmask = (esp_ip4_addr_t){0};
+      wifi_handle->udp->ip_info->gw = (esp_ip4_addr_t){0};
       break;
     }
     default: {
@@ -75,53 +75,58 @@ static void event_handler(void *arg, esp_event_base_t event_base,
 
 // Using overview from:
 // https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/wifi.html#esp32-wi-fi-station-general-scenario
-esp_err_t network_wifi_init(app_state_handle_t state_handle) {
-  ESP_LOGD(TAG, "Starting WiFi connection to \"%s\"", CONFIG_WIFI_SSID);
+esp_err_t network_wifi_init(network_wifi_handle_t *wifi_handle_ptr) {
+  esp_err_t ret = ESP_OK;
 
-  esp_err_t err = ESP_OK;
+  network_wifi_handle_t wifi_handle =
+      (network_wifi_handle_t)malloc(sizeof(network_wifi_t));
+  ESP_GOTO_ON_FALSE(wifi_handle != NULL, ESP_ERR_NO_MEM,
+                    network_wifi_init_error, TAG,
+                    "Failed to allocate memory for wifi handle");
 
-  err = esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler,
-                                   state_handle);
-  if (err != ESP_OK) {
-    return err;
-  }
+  ESP_GOTO_ON_ERROR(network_events_init(&wifi_handle->events),
+                    network_wifi_init_error, TAG,
+                    "Failed to initialize events");
 
-  err = esp_event_handler_register(IP_EVENT, ESP_EVENT_ANY_ID, &event_handler,
-                                   state_handle);
-  if (err != ESP_OK) {
-    return err;
-  }
+  ESP_GOTO_ON_ERROR(network_udp_init(&wifi_handle->udp, wifi_handle->events),
+                    network_wifi_init_error, TAG, "Failed to initialize UDP");
 
-  err = esp_netif_init();
-  if (err != ESP_OK) {
-    return err;
-  }
+  ESP_GOTO_ON_ERROR(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
+                                               &event_handler, wifi_handle),
+                    network_wifi_init_error, TAG,
+                    "Failed to register event handler");
+
+  ESP_GOTO_ON_ERROR(esp_event_handler_register(IP_EVENT, ESP_EVENT_ANY_ID,
+                                               &event_handler, wifi_handle),
+                    network_wifi_init_error, TAG,
+                    "Failed to register event handler");
+
+  ESP_GOTO_ON_ERROR(esp_netif_init(), network_wifi_init_error, TAG,
+                    "Failed to initialize network interface");
 
   esp_netif_create_default_wifi_sta();
 
   wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-  err = esp_wifi_init(&cfg);
-  if (err != ESP_OK) {
-    return err;
-  }
+  ESP_GOTO_ON_ERROR(esp_wifi_init(&cfg), network_wifi_init_error, TAG,
+                    "Failed to initialize WiFi");
 
   // get the current mode from NVS. If not correct, set it
   wifi_mode_t wifi_nvs_mode;
-  esp_err_t get_mode_ret = esp_wifi_get_mode(&wifi_nvs_mode);
-  if (get_mode_ret != ESP_OK || wifi_nvs_mode != WIFI_MODE_STA) {
+  ret = esp_wifi_get_mode(&wifi_nvs_mode);
+  if (ret != ESP_OK || wifi_nvs_mode != WIFI_MODE_STA) {
+    ret = ESP_OK; // reset to try more below
     ESP_LOGW(TAG, "WiFi NVS \"mode\" not correct - setting");
-    err = esp_wifi_set_mode(WIFI_MODE_STA);
-    if (err != ESP_OK) {
-      return err;
-    }
+    ESP_GOTO_ON_ERROR(esp_wifi_set_mode(WIFI_MODE_STA), network_wifi_init_error,
+                      TAG, "Failed to set WiFi mode");
   }
 
   // get the current config from NVS. If not correct, set it
   wifi_config_t wifi_nvs_config;
-  esp_err_t get_config_ret = esp_wifi_get_config(WIFI_IF_STA, &wifi_nvs_config);
-  if (get_config_ret != ESP_OK ||
+  ret = esp_wifi_get_config(WIFI_IF_STA, &wifi_nvs_config);
+  if (ret != ESP_OK ||
       strcmp((char *)wifi_nvs_config.sta.ssid, CONFIG_WIFI_SSID) != 0 ||
       strcmp((char *)wifi_nvs_config.sta.password, CONFIG_WIFI_PWD) != 0) {
+    ret = ESP_OK; // reset to try more below
     ESP_LOGW(TAG, "WiFi NVS \"config\" not correct - setting");
     wifi_config_t wifi_config_new = {
         .sta =
@@ -138,16 +143,26 @@ esp_err_t network_wifi_init(app_state_handle_t state_handle) {
             },
     };
 
-    err = esp_wifi_set_config(WIFI_IF_STA, &wifi_config_new);
-    if (err != ESP_OK) {
-      return err;
-    }
+    ESP_GOTO_ON_ERROR(esp_wifi_set_config(WIFI_IF_STA, &wifi_config_new),
+                      network_wifi_init_error, TAG,
+                      "Failed to set WiFi config");
   }
 
-  err = esp_wifi_start();
-  if (err != ESP_OK) {
-    return err;
-  }
+  ESP_GOTO_ON_ERROR(esp_wifi_start(), network_wifi_init_error, TAG,
+                    "Failed to start WiFi");
 
-  return err;
+  *wifi_handle_ptr = wifi_handle;
+  return ESP_OK;
+
+network_wifi_init_error:
+  network_events_free(wifi_handle->events);
+  network_udp_free(wifi_handle->udp);
+  free(wifi_handle);
+  return ret;
+}
+
+void network_wifi_free(network_wifi_handle_t wifi_handle) {
+  network_events_free(wifi_handle->events);
+  network_udp_free(wifi_handle->udp);
+  free(wifi_handle);
 }

@@ -2,6 +2,15 @@
 
 #include "esp_err.h"
 
-#include "application/state.h"
+#include "network/events.h"
+#include "network/udp.h"
 
-esp_err_t network_wifi_init(app_state_handle_t state_handle);
+typedef struct network_wifi_t {
+  network_udp_handle_t udp;
+  network_events_handle_t events;
+} network_wifi_t;
+
+typedef network_wifi_t *network_wifi_handle_t;
+
+esp_err_t network_wifi_init(network_wifi_handle_t *wifi_handle);
+void network_wifi_free(network_wifi_handle_t wifi_handle);

@@ -5,8 +5,7 @@
 
 #include "application/state.h"
 #include "io/inputs.h"
-#include "network/udp.h"
-#include "network/wifi.h"
+#include "network.h"
 #include "storage/nvs.h"
 
 static char *TAG = "APP_MAIN";
@@ -14,6 +13,8 @@ static char *TAG = "APP_MAIN";
 #define TALK_BTN_PIN GPIO_NUM_35
 
 static app_state_handle_t state_handle;
+static io_inputs_handle_t io_inputs_handle;
+static network_handle_t network_handle;
 
 esp_err_t init_app() {
   esp_err_t ret = ESP_OK;
@@ -28,7 +29,7 @@ esp_err_t init_app() {
     return ret;
   }
 
-  ret = app_state_init(&state_handle, TALK_BTN_PIN);
+  ret = app_state_init(&state_handle);
   if (ret != ESP_OK) {
     return ret;
   }
@@ -43,17 +44,12 @@ esp_err_t init_app() {
 
   ESP_LOGI(TAG, "Device name: %s", state_handle->device_info.name);
 
-  ret = network_udp_init(state_handle);
+  ret = io_inputs_init(&io_inputs_handle, TALK_BTN_PIN);
   if (ret != ESP_OK) {
     return ret;
   }
 
-  ret = io_inputs_init(state_handle);
-  if (ret != ESP_OK) {
-    return ret;
-  }
-
-  ret = network_wifi_init(state_handle);
+  ret = network_init(&network_handle);
   if (ret != ESP_OK) {
     return ret;
   }

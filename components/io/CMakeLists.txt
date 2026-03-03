@@ -1,7 +1,6 @@
 idf_component_register(
   SRCS "inputs.c"
   INCLUDE_DIRS "include"
-  REQUIRES "application"
-  PRIV_REQUIRES "driver"
+  PRIV_REQUIRES "driver" "network"
   REQUIRED_IDF_TARGETS esp32
 )

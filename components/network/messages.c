@@ -1,17 +1,18 @@
 #include "esp_log.h"
+#include "esp_random.h"
 #include "esp_timer.h"
 #include <string.h>
 
-#include "application/messages.h"
+#include "network/messages.h"
 
-static const char *BASE_TAG = "APPLICATION:MESSAGES";
+static const char *BASE_TAG = "NETWORK:MESSAGES";
 
-esp_err_t app_message_init(app_state_handle_t state_handle,
-                           app_message_handle_t *message_ptr,
-                           app_message_type_t type,
-                           app_state_mac_address_t to_mac_address) {
-  app_message_handle_t message =
-      (app_message_handle_t)malloc(sizeof(app_message_t));
+esp_err_t network_message_init(network_message_handle_t *message_ptr,
+                               network_message_type_t type,
+                               network_udp_mac_address_t from_mac_address,
+                               network_udp_mac_address_t to_mac_address) {
+  network_message_handle_t message =
+      (network_message_handle_t)malloc(sizeof(network_message_t));
   if (message == NULL) {
     return ESP_ERR_NO_MEM;
   }
@@ -32,13 +33,18 @@ esp_err_t app_message_init(app_state_handle_t state_handle,
   message->header.uuid[7] = (uint8_t)(rng & 0xFF);
 
   // mac addresses
-  memcpy(message->header.from_mac_address,
-         state_handle->device_info.mac_address, 6);
+  if (from_mac_address != NULL) {
+    memcpy(message->header.from_mac_address, from_mac_address, 6);
+  } else {
+    memcpy(message->header.from_mac_address,
+           NETWORK_MESSAGE_BROADCAST_MAC_ADDRESS, 6);
+  }
+  memcpy(message->header.from_mac_address, from_mac_address, 6);
   if (to_mac_address != NULL) {
     memcpy(message->header.to_mac_address, to_mac_address, 6);
   } else {
-    memcpy(message->header.to_mac_address, APP_MESSAGE_BROADCAST_MAC_ADDRESS,
-           6);
+    memcpy(message->header.to_mac_address,
+           NETWORK_MESSAGE_BROADCAST_MAC_ADDRESS, 6);
   }
 
   switch (type) {
@@ -49,13 +55,13 @@ esp_err_t app_message_init(app_state_handle_t state_handle,
     message->audio.value = NULL;
     break;
   case MESSAGE_TYPE_HEARTBEAT:
-    message->heartbeat.name = NULL;
+    message->heartbeat.from_name = NULL;
     break;
   default:
     // no op, default to all null pointers
     message->text.value = NULL;
     message->audio.value = NULL;
-    message->heartbeat.name = NULL;
+    message->heartbeat.from_name = NULL;
     break;
   }
 
@@ -64,13 +70,14 @@ esp_err_t app_message_init(app_state_handle_t state_handle,
   return ESP_OK;
 }
 
-esp_err_t app_message_init_text(app_state_handle_t state_handle,
-                                app_message_handle_t *message_ptr, char *value,
-                                app_state_mac_address_t to_mac_address) {
+esp_err_t network_message_init_text(network_message_handle_t *message_ptr,
+                                    char *value,
+                                    network_udp_mac_address_t from_mac_address,
+                                    network_udp_mac_address_t to_mac_address) {
   esp_err_t ret = ESP_OK;
 
-  ret = app_message_init(state_handle, message_ptr, MESSAGE_TYPE_TEXT,
-                         to_mac_address);
+  ret = network_message_init(message_ptr, MESSAGE_TYPE_TEXT, from_mac_address,
+                             to_mac_address);
   if (ret != ESP_OK) {
     return ret;
   }
@@ -78,7 +85,7 @@ esp_err_t app_message_init_text(app_state_handle_t state_handle,
   (*message_ptr)->header.length = (strlen(value) + 1) * sizeof(char);
   (*message_ptr)->text.value = (char *)malloc((*message_ptr)->header.length);
   if ((*message_ptr)->text.value == NULL) {
-    app_message_free(*message_ptr);
+    network_message_free(*message_ptr);
     return ESP_ERR_NO_MEM;
   }
 
@@ -87,38 +94,39 @@ esp_err_t app_message_init_text(app_state_handle_t state_handle,
   return ESP_OK;
 }
 
-esp_err_t app_message_init_heartbeat(app_state_handle_t state_handle,
-                                     app_message_handle_t *message_ptr) {
+esp_err_t
+network_message_init_heartbeat(network_message_handle_t *message_ptr,
+                               char *from_name,
+                               network_udp_mac_address_t from_mac_address) {
   esp_err_t ret = ESP_OK;
 
-  ret =
-      app_message_init(state_handle, message_ptr, MESSAGE_TYPE_HEARTBEAT, NULL);
+  ret = network_message_init(message_ptr, MESSAGE_TYPE_HEARTBEAT,
+                             from_mac_address, NULL);
   if (ret != ESP_OK) {
     return ret;
   }
 
-  (*message_ptr)->header.length =
-      (strlen(state_handle->device_info.name) + 1) * sizeof(char);
-  (*message_ptr)->heartbeat.name =
+  (*message_ptr)->header.length = (strlen(from_name) + 1) * sizeof(char);
+  (*message_ptr)->heartbeat.from_name =
       (char *)malloc((*message_ptr)->header.length);
-  if ((*message_ptr)->heartbeat.name == NULL) {
-    app_message_free(*message_ptr);
+  if ((*message_ptr)->heartbeat.from_name == NULL) {
+    network_message_free(*message_ptr);
     return ESP_ERR_NO_MEM;
   }
 
-  strcpy((*message_ptr)->heartbeat.name, state_handle->device_info.name);
+  strcpy((*message_ptr)->heartbeat.from_name, from_name);
 
   return ESP_OK;
 }
 
-esp_err_t app_message_init_audio(app_state_handle_t state_handle,
-                                 app_message_handle_t *message_ptr,
-                                 uint8_t *value, int length,
-                                 app_state_mac_address_t to_mac_address) {
+esp_err_t network_message_init_audio(network_message_handle_t *message_ptr,
+                                     uint8_t *value, int length,
+                                     network_udp_mac_address_t from_mac_address,
+                                     network_udp_mac_address_t to_mac_address) {
   esp_err_t ret = ESP_OK;
 
-  ret = app_message_init(state_handle, message_ptr, MESSAGE_TYPE_AUDIO,
-                         to_mac_address);
+  ret = network_message_init(message_ptr, MESSAGE_TYPE_AUDIO, from_mac_address,
+                             to_mac_address);
   if (ret != ESP_OK) {
     return ret;
   }
@@ -126,7 +134,7 @@ esp_err_t app_message_init_audio(app_state_handle_t state_handle,
   (*message_ptr)->header.length = length;
   (*message_ptr)->audio.value = (uint8_t *)malloc(length);
   if ((*message_ptr)->audio.value == NULL) {
-    app_message_free(*message_ptr);
+    network_message_free(*message_ptr);
     return ESP_ERR_NO_MEM;
   }
 
@@ -135,7 +143,8 @@ esp_err_t app_message_init_audio(app_state_handle_t state_handle,
   return ESP_OK;
 }
 
-esp_err_t app_message_set_payload(app_message_handle_t message, void *value) {
+esp_err_t network_message_set_payload(network_message_handle_t message,
+                                      void *value) {
   switch (message->header.type) {
   case MESSAGE_TYPE_TEXT:
     free(message->text.value);
@@ -159,14 +168,14 @@ esp_err_t app_message_set_payload(app_message_handle_t message, void *value) {
     memcpy(message->audio.value, value, message->header.length);
     break;
   case MESSAGE_TYPE_HEARTBEAT:
-    free(message->heartbeat.name);
+    free(message->heartbeat.from_name);
 
-    message->heartbeat.name = (char *)malloc(message->header.length);
-    if (message->heartbeat.name == NULL) {
+    message->heartbeat.from_name = (char *)malloc(message->header.length);
+    if (message->heartbeat.from_name == NULL) {
       return ESP_ERR_NO_MEM;
     }
 
-    strcpy(message->heartbeat.name, (char *)value);
+    strcpy(message->heartbeat.from_name, (char *)value);
     break;
   default:
     ESP_LOGE(BASE_TAG, "Unknown message type: %d", message->header.type);
@@ -176,7 +185,7 @@ esp_err_t app_message_set_payload(app_message_handle_t message, void *value) {
   return ESP_OK;
 }
 
-void app_message_free(app_message_handle_t message) {
+void network_message_free(network_message_handle_t message) {
   switch (message->header.type) {
   case MESSAGE_TYPE_TEXT:
     free(message->text.value);
@@ -185,14 +194,14 @@ void app_message_free(app_message_handle_t message) {
     free(message->audio.value);
     break;
   case MESSAGE_TYPE_HEARTBEAT:
-    free(message->heartbeat.name);
+    free(message->heartbeat.from_name);
     break;
   default:
     // no op, free both null pointers
     // (null pointers are checked in free)
     free(message->text.value);
     free(message->audio.value);
-    free(message->heartbeat.name);
+    free(message->heartbeat.from_name);
     break;
   }
 
