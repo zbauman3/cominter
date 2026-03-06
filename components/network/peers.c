@@ -38,7 +38,7 @@ void network_peers_free(network_peers_list_handle_t peers_list_handle) {
 }
 
 esp_err_t network_peers_add(network_peers_list_handle_t peers_list_handle,
-                            network_udp_mac_address_t mac_address, char *name) {
+                            network_mac_address_t mac_address, char *name) {
   xSemaphoreTake(peers_list_handle->mutex, portMAX_DELAY);
 
   esp_err_t ret = ESP_OK;
@@ -73,7 +73,7 @@ esp_err_t network_peers_add(network_peers_list_handle_t peers_list_handle,
     goto network_peers_add_end;
   }
 
-  memcpy(new_peer->mac_address, mac_address, 6);
+  memcpy(new_peer->mac_address, mac_address, sizeof(network_mac_address_t));
   strcpy(new_peer->name, name);
   new_peer->last_heartbeat_ms = (int32_t)(esp_timer_get_time() / 1000);
   new_peer->next_peer = peers_list_handle->head;
@@ -85,14 +85,15 @@ network_peers_add_end:
 }
 
 esp_err_t network_peers_remove(network_peers_list_handle_t peers_list_handle,
-                               network_udp_mac_address_t mac_address) {
+                               network_mac_address_t mac_address) {
   xSemaphoreTake(peers_list_handle->mutex, portMAX_DELAY);
 
   network_peer_t *current_peer = peers_list_handle->head;
   network_peer_t *previous_peer = NULL;
 
   while (current_peer != NULL) {
-    if (memcmp(current_peer->mac_address, mac_address, 6) == 0) {
+    if (memcmp(current_peer->mac_address, mac_address,
+               sizeof(network_mac_address_t)) == 0) {
       if (previous_peer == NULL) {
         peers_list_handle->head = current_peer->next_peer;
       } else {
@@ -150,14 +151,15 @@ esp_err_t network_peers_prune(network_peers_list_handle_t peers_list_handle) {
 
 network_peer_t *
 network_peers_find(network_peers_list_handle_t peers_list_handle,
-                   network_udp_mac_address_t mac_address, bool should_lock) {
+                   network_mac_address_t mac_address, bool should_lock) {
   if (should_lock) {
     xSemaphoreTake(peers_list_handle->mutex, portMAX_DELAY);
   }
 
   network_peer_t *current_peer = peers_list_handle->head;
   while (current_peer != NULL) {
-    if (memcmp(current_peer->mac_address, mac_address, 6) == 0) {
+    if (memcmp(current_peer->mac_address, mac_address,
+               sizeof(network_mac_address_t)) == 0) {
       if (should_lock) {
         xSemaphoreGive(peers_list_handle->mutex);
       }

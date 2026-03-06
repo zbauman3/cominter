@@ -2,16 +2,13 @@
 
 #include "esp_err.h"
 
-#include "network/udp.h"
+#include "network/types.h"
 
 // Looks like ESP-IDF's socket implementation doesn't support the flag for
 // "Don't Fragment". But either way this is a reasonable default.
 // Riding on the back of giants with the same max as QUIC.
 // https://datatracker.ietf.org/doc/html/rfc9000#name-datagram-size
 #define NETWORK_MESSAGE_MAX_LENGTH 1200
-
-static const network_udp_mac_address_t NETWORK_MESSAGE_BROADCAST_MAC_ADDRESS = {
-    255, 255, 255, 255, 255, 255};
 
 typedef enum network_message_type_t {
   MESSAGE_TYPE_UNKNOWN = 0,
@@ -40,8 +37,8 @@ typedef struct network_message_header_t {
   network_message_type_t type;
   int length;
   network_message_uuid_t uuid;
-  network_udp_mac_address_t from_mac_address;
-  network_udp_mac_address_t to_mac_address;
+  network_mac_address_t from_mac_address;
+  network_mac_address_t to_mac_address;
 } network_message_header_t;
 
 typedef struct network_message_t {
@@ -57,20 +54,20 @@ typedef network_message_t *network_message_handle_t;
 
 esp_err_t network_message_init(network_message_handle_t *message_ptr,
                                network_message_type_t type,
-                               network_udp_mac_address_t from_mac_address,
-                               network_udp_mac_address_t to_mac_address);
+                               network_mac_address_t from_mac_address,
+                               network_mac_address_t to_mac_address);
 esp_err_t network_message_init_text(network_message_handle_t *message_ptr,
                                     char *value,
-                                    network_udp_mac_address_t from_mac_address,
-                                    network_udp_mac_address_t to_mac_address);
+                                    network_mac_address_t from_mac_address,
+                                    network_mac_address_t to_mac_address);
 esp_err_t
 network_message_init_heartbeat(network_message_handle_t *message_ptr,
                                char *from_name,
-                               network_udp_mac_address_t from_mac_address);
+                               network_mac_address_t from_mac_address);
 esp_err_t network_message_init_audio(network_message_handle_t *message_ptr,
                                      uint8_t *value, int length,
-                                     network_udp_mac_address_t from_mac_address,
-                                     network_udp_mac_address_t to_mac_address);
+                                     network_mac_address_t from_mac_address,
+                                     network_mac_address_t to_mac_address);
 
 // it is expected that the message header length is already set
 esp_err_t network_message_set_payload(network_message_handle_t message,

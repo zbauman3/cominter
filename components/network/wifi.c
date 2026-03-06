@@ -75,7 +75,9 @@ static void event_handler(void *arg, esp_event_base_t event_base,
 
 // Using overview from:
 // https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/wifi.html#esp32-wi-fi-station-general-scenario
-esp_err_t network_wifi_init(network_wifi_handle_t *wifi_handle_ptr) {
+esp_err_t network_wifi_init(network_wifi_handle_t *wifi_handle_ptr,
+                            network_events_handle_t events,
+                            network_udp_handle_t udp) {
   esp_err_t ret = ESP_OK;
 
   network_wifi_handle_t wifi_handle =
@@ -84,12 +86,8 @@ esp_err_t network_wifi_init(network_wifi_handle_t *wifi_handle_ptr) {
                     network_wifi_init_error, TAG,
                     "Failed to allocate memory for wifi handle");
 
-  ESP_GOTO_ON_ERROR(network_events_init(&wifi_handle->events),
-                    network_wifi_init_error, TAG,
-                    "Failed to initialize events");
-
-  ESP_GOTO_ON_ERROR(network_udp_init(&wifi_handle->udp, wifi_handle->events),
-                    network_wifi_init_error, TAG, "Failed to initialize UDP");
+  wifi_handle->events = events;
+  wifi_handle->udp = udp;
 
   ESP_GOTO_ON_ERROR(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
                                                &event_handler, wifi_handle),
@@ -155,14 +153,8 @@ esp_err_t network_wifi_init(network_wifi_handle_t *wifi_handle_ptr) {
   return ESP_OK;
 
 network_wifi_init_error:
-  network_events_free(wifi_handle->events);
-  network_udp_free(wifi_handle->udp);
   free(wifi_handle);
   return ret;
 }
 
-void network_wifi_free(network_wifi_handle_t wifi_handle) {
-  network_events_free(wifi_handle->events);
-  network_udp_free(wifi_handle->udp);
-  free(wifi_handle);
-}
+void network_wifi_free(network_wifi_handle_t wifi_handle) { free(wifi_handle); }

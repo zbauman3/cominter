@@ -16,7 +16,7 @@ static const char *BASE_TAG = "NETWORK:UDP";
 static const char *SOCKET_TAG = "NETWORK:UDP:SOCKET";
 static const char *MULTICAST_WRITE_TAG = "NETWORK:UDP:MULTICAST:WRITE";
 static const char *MULTICAST_READ_TAG = "NETWORK:UDP:MULTICAST:READ";
-// static const char *UDP_HEARTBEAT_TAG = "NETWORK:UDP:HEARTBEAT";
+static const char *UDP_HEARTBEAT_TAG = "NETWORK:UDP:HEARTBEAT";
 
 // // ----------------
 // // Socket Stuff
@@ -147,36 +147,51 @@ void udp_socket_task(void *pvParameters) {
   }
 }
 
-// void network_udp_heartbeat_task(void *pvParameters) {
-//   network_handle_t network_handle = (network_handle_t)pvParameters;
-//   network_message_handle_t outgoing_message;
-//   BaseType_t xReturned;
+void network_udp_heartbeat_task(void *pvParameters) {
+  network_udp_handle_t network_udp_handle = (network_udp_handle_t)pvParameters;
+  network_message_handle_t outgoing_message;
+  BaseType_t xReturned;
 
-//   while (true) {
-//     if (network_message_init_heartbeat(state_handle, &outgoing_message) !=
-//         ESP_OK) {
-//       ESP_LOGE(UDP_HEARTBEAT_TAG, "Failed to initialize message");
-//       vTaskDelay(pdMS_TO_TICKS(1000));
-//       continue;
-//     }
+  // when first coming on the network, send 10 heartbeats to make sure we're
+  // put into peer lists.
+  // ---------------------------------------------------------------------------
+  // Need to work on this. Ideally this system would work:
+  // - Every time the network comes online, send 6 heartbeats.
+  // - Every time we receive a heartbeat from a peer, send 3 in response.
+  // ---------------------------------------------------------------------------
+  uint8_t init_heartbeat_count = 10;
 
-//     xReturned = xQueueSendToBack(state_handle->queues.message_outgoing_queue,
-//                                  &outgoing_message, pdMS_TO_TICKS(5000));
-//     if (xReturned != pdPASS) {
-//       ESP_LOGE(UDP_HEARTBEAT_TAG,
-//                "Failed to send message to queue. Dropping message.");
-//       network_message_free(outgoing_message);
-//     }
+  while (true) {
+    if (network_message_init_heartbeat(
+            &outgoing_message, network_udp_handle->state->device_info.name,
+            network_udp_handle->mac_address) != ESP_OK) {
+      ESP_LOGE(UDP_HEARTBEAT_TAG, "Failed to initialize message");
+      vTaskDelay(pdMS_TO_TICKS(1000));
+      continue;
+    }
 
-//     // the queue will now own the message.
-//     outgoing_message = NULL;
+    xReturned = xQueueSendToBack(network_udp_handle->queues->message_outgoing,
+                                 &outgoing_message, pdMS_TO_TICKS(5000));
+    if (xReturned != pdPASS) {
+      ESP_LOGE(UDP_HEARTBEAT_TAG,
+               "Failed to send message to queue. Dropping message.");
+      network_message_free(outgoing_message);
+    }
 
-//     // prune while we're here
-//     app_state_peers_prune(state_handle);
+    // the queue will now own the message.
+    outgoing_message = NULL;
 
-//     vTaskDelay(pdMS_TO_TICKS(NETWORK_UDP_HEARTBEAT_INTERVAL_MS));
-//   }
-// }
+    // prune while we're here
+    network_peers_prune(network_udp_handle->peers);
+
+    if (init_heartbeat_count > 0) {
+      init_heartbeat_count--;
+      vTaskDelay(pdMS_TO_TICKS(NETWORK_UDP_HEARTBEAT_INIT_INTERVAL_MS));
+    } else {
+      vTaskDelay(pdMS_TO_TICKS(NETWORK_UDP_HEARTBEAT_INTERVAL_MS));
+    }
+  }
+}
 
 void network_udp_socket_close(network_udp_handle_t network_udp_handle) {
   if (network_udp_handle->socket >= 0) {
@@ -355,31 +370,32 @@ void udp_multicast_read_task(void *pvParameters) {
              incoming_message->header.to_mac_address[4],
              incoming_message->header.to_mac_address[5]);
 
-    // app_state_peer_t *peer = state_handle->peers.list;
-    // int peer_count = 0;
-    // while (peer != NULL) {
-    //   peer_count++;
-    //   peer = peer->next_peer;
-    // }
+    network_peer_t *peer = network_udp_handle->peers->head;
+    int peer_count = 0;
+    while (peer != NULL) {
+      peer_count++;
+      peer = peer->next_peer;
+    }
 
-    // ESP_LOGI(MULTICAST_READ_TAG, "Peer count: %d", peer_count);
+    ESP_LOGI(MULTICAST_READ_TAG, "Peer count: %d", peer_count);
 
-    // peer = NULL;
-    // peer = app_state_peer_find(state_handle,
-    //                            incoming_message->header.from_mac_address,
-    //                            true);
-    // if (peer == NULL) {
-    //   ESP_LOGI(MULTICAST_READ_TAG, "Peer not found");
-    // } else {
-    //   ESP_LOGI(MULTICAST_READ_TAG, "Peer found: %s", peer->name);
-    // }
+    peer = NULL;
+    peer = network_peers_find(network_udp_handle->peers,
+                              incoming_message->header.from_mac_address, true);
+    if (peer == NULL) {
+      ESP_LOGI(MULTICAST_READ_TAG, "Peer not found");
+    } else {
+      ESP_LOGI(MULTICAST_READ_TAG, "Peer found: %s", peer->name);
+    }
 
     // check if the `to_mac_address` is the same as the local MAC address
     // of if it is the broadcast MAC address.
     if (memcmp(incoming_message->header.to_mac_address,
-               network_udp_handle->mac_address, 6) != 0 &&
+               network_udp_handle->mac_address,
+               sizeof(network_mac_address_t)) != 0 &&
         memcmp(incoming_message->header.to_mac_address,
-               NETWORK_MESSAGE_BROADCAST_MAC_ADDRESS, 6) != 0) {
+               NETWORK_MESSAGE_BROADCAST_MAC_ADDRESS,
+               sizeof(network_mac_address_t)) != 0) {
       ESP_LOGI(MULTICAST_READ_TAG, "Message is not for me, skipping");
       network_message_free(incoming_message);
       continue;
@@ -395,9 +411,9 @@ void udp_multicast_read_task(void *pvParameters) {
       break;
     case MESSAGE_TYPE_HEARTBEAT:
       ESP_LOGI(MULTICAST_READ_TAG, "Heartbeat\n");
-      // app_state_peer_add(state_handle,
-      //                    incoming_message->header.from_mac_address,
-      //                    incoming_message->heartbeat.name);
+      network_peers_add(network_udp_handle->peers,
+                        incoming_message->header.from_mac_address,
+                        incoming_message->heartbeat.from_name);
       break;
     default:
       ESP_LOGE(MULTICAST_READ_TAG, "Unknown message type: %d\n",
@@ -421,7 +437,7 @@ void udp_multicast_write_task(void *pvParameters) {
 
     // wait for the message queue to have a message
     BaseType_t xReturned =
-        xQueueReceive(network_udp_handle->queues.message_outgoing,
+        xQueueReceive(network_udp_handle->queues->message_outgoing,
                       &outgoing_message, portMAX_DELAY);
 
     // The socket could have been closed while waiting.
@@ -431,8 +447,8 @@ void udp_multicast_write_task(void *pvParameters) {
     if (!(bits_waiting & NETWORK_EVENT_SOCKET_READY)) {
       ESP_LOGD(MULTICAST_WRITE_TAG, "Socket not ready, skipping write");
 
-      xReturned = xQueueSendToFront(network_udp_handle->queues.message_outgoing,
-                                    &outgoing_message, 0);
+      xReturned = xQueueSendToFront(
+          network_udp_handle->queues->message_outgoing, &outgoing_message, 0);
       if (xReturned == pdPASS) {
         // intentionally do not clean up the message here.
         // it was put back in the queue to be cleaned up by the next
@@ -456,21 +472,23 @@ void udp_multicast_write_task(void *pvParameters) {
         outgoing_message->header.uuid[4], outgoing_message->header.uuid[5],
         outgoing_message->header.uuid[6], outgoing_message->header.uuid[7]);
     ESP_LOGI(MULTICAST_WRITE_TAG,
-             "FROM MAC address: %02X:%02X:%02X:%02X:%02X:%02X",
-             outgoing_message->header.from_mac_address[0],
-             outgoing_message->header.from_mac_address[1],
-             outgoing_message->header.from_mac_address[2],
-             outgoing_message->header.from_mac_address[3],
-             outgoing_message->header.from_mac_address[4],
-             outgoing_message->header.from_mac_address[5]);
-    ESP_LOGI(MULTICAST_WRITE_TAG,
-             "TO MAC address: %02X:%02X:%02X:%02X:%02X:%02X\n",
+             "TO MAC address: %02X:%02X:%02X:%02X:%02X:%02X",
              outgoing_message->header.to_mac_address[0],
              outgoing_message->header.to_mac_address[1],
              outgoing_message->header.to_mac_address[2],
              outgoing_message->header.to_mac_address[3],
              outgoing_message->header.to_mac_address[4],
              outgoing_message->header.to_mac_address[5]);
+    ESP_LOGI(MULTICAST_WRITE_TAG, "Message type: %d\n",
+             outgoing_message->header.type);
+
+    // if an address wasn't provided, use the local MAC address
+    if (memcmp(outgoing_message->header.from_mac_address,
+               NETWORK_MESSAGE_BROADCAST_MAC_ADDRESS,
+               sizeof(network_mac_address_t)) == 0) {
+      memcpy(outgoing_message->header.from_mac_address,
+             network_udp_handle->mac_address, sizeof(network_mac_address_t));
+    }
 
     if (socket_send_message(network_udp_handle->socket, outgoing_message,
                             network_udp_handle->multicast_addr_info) !=
@@ -489,7 +507,10 @@ void udp_multicast_write_task(void *pvParameters) {
 // ----------------
 
 esp_err_t network_udp_init(network_udp_handle_t *network_udp_handle_ptr,
-                           network_events_handle_t events_handle) {
+                           network_events_handle_t events_handle,
+                           network_queues_handle_t queues_handle,
+                           network_peers_list_handle_t peers_handle,
+                           app_state_handle_t state_handle) {
   esp_err_t ret = ESP_OK;
   BaseType_t xReturned;
 
@@ -505,8 +526,9 @@ esp_err_t network_udp_init(network_udp_handle_t *network_udp_handle_ptr,
   network_udp_handle->ip_info =
       (esp_netif_ip_info_t *)malloc(sizeof(esp_netif_ip_info_t));
   network_udp_handle->events = events_handle;
-  network_udp_handle->queues.message_outgoing =
-      xQueueCreate(10, sizeof(network_message_handle_t));
+  network_udp_handle->queues = queues_handle;
+  network_udp_handle->peers = peers_handle;
+  network_udp_handle->state = state_handle;
 
   if (esp_read_mac(network_udp_handle->mac_address, ESP_MAC_WIFI_STA) !=
       ESP_OK) {
@@ -565,20 +587,24 @@ esp_err_t network_udp_init(network_udp_handle_t *network_udp_handle_ptr,
     goto network_udp_init_error;
   }
 
-  // xReturned = xTaskCreate(network_udp_heartbeat_task, UDP_HEARTBEAT_TAG,
-  //                         APP_STATE_TASK_STACK_DEPTH_UDP_HEARTBEAT,
-  //                         state_handle,
-  //                         APP_STATE_TASK_PRIORITY_UDP_HEARTBEAT,
-  //                         &state_handle->tasks.udp_heartbeat_task);
+  xReturned =
+      xTaskCreate(network_udp_heartbeat_task, UDP_HEARTBEAT_TAG,
+                  APP_STATE_TASK_STACK_DEPTH_UDP_HEARTBEAT, network_udp_handle,
+                  NETWORK_UDP_TASK_PRIORITY_UDP_HEARTBEAT,
+                  &network_udp_handle->tasks.udp_heartbeat);
 
-  // if (xReturned != pdPASS) {
-  //   ESP_LOGE(BASE_TAG, "Failed to create UDP heartbeat task");
-  //   return ESP_ERR_INVALID_STATE;
-  // }
-  // if (state_handle->tasks.udp_heartbeat_task == NULL) {
-  //   ESP_LOGE(BASE_TAG, "Failed to create UDP heartbeat task");
-  //   return ESP_ERR_NO_MEM;
-  // }
+  if (xReturned != pdPASS) {
+    ESP_LOGE(BASE_TAG, "Failed to create UDP heartbeat task");
+    ret = ESP_ERR_INVALID_STATE;
+    goto network_udp_init_error;
+  }
+  if (network_udp_handle->tasks.udp_heartbeat == NULL) {
+    ESP_LOGE(BASE_TAG, "Failed to create UDP heartbeat task");
+    ret = ESP_ERR_NO_MEM;
+    goto network_udp_init_error;
+  }
+
+  *network_udp_handle_ptr = network_udp_handle;
 
   return ESP_OK;
 
@@ -596,10 +622,7 @@ void network_udp_free(network_udp_handle_t network_udp_handle) {
   vTaskDelete(network_udp_handle->tasks.multicast_write);
   vTaskDelete(network_udp_handle->tasks.multicast_read);
   vTaskDelete(network_udp_handle->tasks.socket);
-  // vTaskDelete(network_udp_handle->tasks.udp_heartbeat);
-
-  vQueueDelete(network_udp_handle->queues.message_outgoing);
-  // vQueueDelete(network_udp_handle->queues.message_incoming);
+  vTaskDelete(network_udp_handle->tasks.udp_heartbeat);
 
   free(network_udp_handle);
 }

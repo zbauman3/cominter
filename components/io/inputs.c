@@ -2,7 +2,7 @@
 #include "esp_log.h"
 
 #include "io/inputs.h"
-// #include "network/messages.h"
+#include "network/messages.h"
 
 static const char *BASE_TAG = "IO:INPUTS";
 static const char *TASK_TAG = "IO:INPUTS:TASK";
@@ -16,8 +16,8 @@ void IRAM_ATTR io_inputs_talk_btn_isr(void *arg) {
 void io_inputs_task(void *pvParameters) {
   io_inputs_handle_t io_inputs_handle = (io_inputs_handle_t)pvParameters;
   uint32_t io_num;
-  // network_message_handle_t outgoing_message;
-  // BaseType_t xReturned;
+  network_message_handle_t outgoing_message;
+  BaseType_t xReturned;
 
   while (1) {
     xQueueReceive(io_inputs_handle->queues.inputs_queue, &io_num,
@@ -28,34 +28,37 @@ void io_inputs_task(void *pvParameters) {
 
     ESP_LOGI(TASK_TAG, "Talk button pressed");
 
-    // if (network_message_init_text(&outgoing_message, "Hi!", NULL, NULL) !=
-    //     ESP_OK) {
-    //   ESP_LOGE(TASK_TAG, "Failed to initialize message");
-    //   continue;
-    // }
+    if (network_message_init_text(&outgoing_message, "Hi!", NULL, NULL) !=
+        ESP_OK) {
+      ESP_LOGE(TASK_TAG, "Failed to initialize message");
+      continue;
+    }
 
-    // xReturned =
-    // xQueueSendToBack(io_inputs_handle->queues.message_outgoing_queue,
-    //                              &outgoing_message, (500 /
-    //                              portTICK_PERIOD_MS));
-    // if (xReturned != pdPASS) {
-    //   ESP_LOGE(TASK_TAG, "Failed to send message to queue. Dropping
-    //   message."); app_message_free(outgoing_message);
-    // }
+    xReturned =
+        xQueueSendToBack(io_inputs_handle->network_queues->message_outgoing,
+                         &outgoing_message, (500 / portTICK_PERIOD_MS));
+    if (xReturned != pdPASS) {
+      ESP_LOGE(TASK_TAG, "Failed to send message to queue. Dropping message.");
+      network_message_free(outgoing_message);
+    }
 
-    // // the queue will now own the message.
-    // outgoing_message = NULL;
+    // the queue will now own the message.
+    outgoing_message = NULL;
   }
 }
 
 esp_err_t io_inputs_init(io_inputs_handle_t *io_inputs_handle_ptr,
-                         int talk_btn_pin) {
+                         int talk_btn_pin, app_state_handle_t state_handle,
+                         network_queues_handle_t network_queues_handle) {
   io_inputs_handle_t io_inputs_handle =
       (io_inputs_handle_t)malloc(sizeof(io_inputs_t));
   if (io_inputs_handle == NULL) {
     ESP_LOGE(BASE_TAG, "Failed to allocate memory for io inputs handle");
     return ESP_ERR_NO_MEM;
   }
+
+  io_inputs_handle->state = state_handle;
+  io_inputs_handle->network_queues = network_queues_handle;
 
   io_inputs_handle->queues.inputs_queue = xQueueCreate(10, sizeof(uint32_t));
   if (io_inputs_handle->queues.inputs_queue == NULL) {

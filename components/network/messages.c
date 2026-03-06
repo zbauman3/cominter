@@ -9,8 +9,8 @@ static const char *BASE_TAG = "NETWORK:MESSAGES";
 
 esp_err_t network_message_init(network_message_handle_t *message_ptr,
                                network_message_type_t type,
-                               network_udp_mac_address_t from_mac_address,
-                               network_udp_mac_address_t to_mac_address) {
+                               network_mac_address_t from_mac_address,
+                               network_mac_address_t to_mac_address) {
   network_message_handle_t message =
       (network_message_handle_t)malloc(sizeof(network_message_t));
   if (message == NULL) {
@@ -34,17 +34,21 @@ esp_err_t network_message_init(network_message_handle_t *message_ptr,
 
   // mac addresses
   if (from_mac_address != NULL) {
-    memcpy(message->header.from_mac_address, from_mac_address, 6);
+    memcpy(message->header.from_mac_address, from_mac_address,
+           sizeof(network_mac_address_t));
   } else {
     memcpy(message->header.from_mac_address,
-           NETWORK_MESSAGE_BROADCAST_MAC_ADDRESS, 6);
+           NETWORK_MESSAGE_BROADCAST_MAC_ADDRESS,
+           sizeof(network_mac_address_t));
   }
-  memcpy(message->header.from_mac_address, from_mac_address, 6);
+
   if (to_mac_address != NULL) {
-    memcpy(message->header.to_mac_address, to_mac_address, 6);
+    memcpy(message->header.to_mac_address, to_mac_address,
+           sizeof(network_mac_address_t));
   } else {
     memcpy(message->header.to_mac_address,
-           NETWORK_MESSAGE_BROADCAST_MAC_ADDRESS, 6);
+           NETWORK_MESSAGE_BROADCAST_MAC_ADDRESS,
+           sizeof(network_mac_address_t));
   }
 
   switch (type) {
@@ -72,8 +76,8 @@ esp_err_t network_message_init(network_message_handle_t *message_ptr,
 
 esp_err_t network_message_init_text(network_message_handle_t *message_ptr,
                                     char *value,
-                                    network_udp_mac_address_t from_mac_address,
-                                    network_udp_mac_address_t to_mac_address) {
+                                    network_mac_address_t from_mac_address,
+                                    network_mac_address_t to_mac_address) {
   esp_err_t ret = ESP_OK;
 
   ret = network_message_init(message_ptr, MESSAGE_TYPE_TEXT, from_mac_address,
@@ -97,7 +101,7 @@ esp_err_t network_message_init_text(network_message_handle_t *message_ptr,
 esp_err_t
 network_message_init_heartbeat(network_message_handle_t *message_ptr,
                                char *from_name,
-                               network_udp_mac_address_t from_mac_address) {
+                               network_mac_address_t from_mac_address) {
   esp_err_t ret = ESP_OK;
 
   ret = network_message_init(message_ptr, MESSAGE_TYPE_HEARTBEAT,
@@ -121,8 +125,8 @@ network_message_init_heartbeat(network_message_handle_t *message_ptr,
 
 esp_err_t network_message_init_audio(network_message_handle_t *message_ptr,
                                      uint8_t *value, int length,
-                                     network_udp_mac_address_t from_mac_address,
-                                     network_udp_mac_address_t to_mac_address) {
+                                     network_mac_address_t from_mac_address,
+                                     network_mac_address_t to_mac_address) {
   esp_err_t ret = ESP_OK;
 
   ret = network_message_init(message_ptr, MESSAGE_TYPE_AUDIO, from_mac_address,
