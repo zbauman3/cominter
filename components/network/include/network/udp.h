@@ -53,4 +53,3 @@ esp_err_t network_udp_init(network_udp_handle_t *network_udp_handle_ptr,
                            network_peers_list_handle_t peers_handle,
                            app_state_handle_t state_handle);
 void network_udp_socket_close(network_udp_handle_t network_udp_handle);
-void network_udp_free(network_udp_handle_t network_udp_handle);

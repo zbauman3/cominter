@@ -612,17 +612,3 @@ network_udp_init_error:
   free(network_udp_handle);
   return ret;
 }
-
-void network_udp_free(network_udp_handle_t network_udp_handle) {
-  network_udp_socket_close(network_udp_handle);
-
-  free(network_udp_handle->multicast_addr_info);
-  free(network_udp_handle->ip_info);
-
-  vTaskDelete(network_udp_handle->tasks.multicast_write);
-  vTaskDelete(network_udp_handle->tasks.multicast_read);
-  vTaskDelete(network_udp_handle->tasks.socket);
-  vTaskDelete(network_udp_handle->tasks.udp_heartbeat);
-
-  free(network_udp_handle);
-}

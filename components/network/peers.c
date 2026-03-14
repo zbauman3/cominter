@@ -21,22 +21,6 @@ network_peers_init(network_peers_list_handle_t *peers_list_handle_ptr) {
   return ESP_OK;
 }
 
-void network_peers_free(network_peers_list_handle_t peers_list_handle) {
-  xSemaphoreTake(peers_list_handle->mutex, portMAX_DELAY);
-
-  network_peer_t *current_peer = peers_list_handle->head;
-  network_peer_t *next_peer = NULL;
-  while (current_peer != NULL) {
-    next_peer = current_peer->next_peer;
-    free(current_peer->name);
-    free(current_peer);
-    current_peer = next_peer;
-  }
-
-  xSemaphoreGive(peers_list_handle->mutex);
-  free(peers_list_handle);
-}
-
 esp_err_t network_peers_add(network_peers_list_handle_t peers_list_handle,
                             network_mac_address_t mac_address, char *name) {
   xSemaphoreTake(peers_list_handle->mutex, portMAX_DELAY);

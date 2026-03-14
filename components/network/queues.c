@@ -23,9 +23,3 @@ esp_err_t network_queues_init(network_queues_handle_t *handle_ptr) {
 
   return ESP_OK;
 }
-
-void network_queues_free(network_queues_handle_t handle) {
-  vQueueDelete(handle->message_outgoing);
-  vQueueDelete(handle->message_incoming);
-  free(handle);
-}

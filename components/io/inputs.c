@@ -105,11 +105,3 @@ esp_err_t io_inputs_init(io_inputs_handle_t *io_inputs_handle_ptr,
 
   return ESP_OK;
 }
-
-void io_inputs_free(io_inputs_handle_t io_inputs_handle) {
-  vTaskDelete(io_inputs_handle->tasks.inputs_task);
-  vQueueDelete(io_inputs_handle->queues.inputs_queue);
-  gpio_isr_handler_remove(io_inputs_handle->pins.talk_btn);
-  gpio_uninstall_isr_service();
-  free(io_inputs_handle);
-}

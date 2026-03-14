@@ -23,7 +23,6 @@ typedef network_peers_list_t *network_peers_list_handle_t;
 
 esp_err_t
 network_peers_init(network_peers_list_handle_t *peers_list_handle_ptr);
-void network_peers_free(network_peers_list_handle_t peers_list_handle);
 
 esp_err_t network_peers_add(network_peers_list_handle_t peers_list_handle,
                             network_mac_address_t mac_address, char *name);

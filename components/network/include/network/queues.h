@@ -18,4 +18,3 @@ typedef struct network_queues_t {
 typedef network_queues_t *network_queues_handle_t;
 
 esp_err_t network_queues_init(network_queues_handle_t *handle_ptr);
-void network_queues_free(network_queues_handle_t handle);

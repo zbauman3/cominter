@@ -32,4 +32,3 @@ typedef io_inputs_t *io_inputs_handle_t;
 esp_err_t io_inputs_init(io_inputs_handle_t *io_inputs_handle_ptr,
                          int talk_btn_pin, app_state_handle_t state_handle,
                          network_queues_handle_t network_queues_handle);
-void io_inputs_free(io_inputs_handle_t io_inputs_handle);

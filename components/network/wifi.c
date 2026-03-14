@@ -156,5 +156,3 @@ network_wifi_init_error:
   free(wifi_handle);
   return ret;
 }
-
-void network_wifi_free(network_wifi_handle_t wifi_handle) { free(wifi_handle); }

@@ -12,8 +12,3 @@ esp_err_t network_events_init(network_events_handle_t *handle_ptr) {
 
   return ESP_OK;
 }
-
-void network_events_free(network_events_handle_t handle) {
-  vEventGroupDelete(handle->group_handle);
-  free(handle);
-}

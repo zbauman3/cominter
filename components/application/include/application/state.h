@@ -15,4 +15,3 @@ typedef struct app_state_t {
 typedef app_state_t *app_state_handle_t;
 
 esp_err_t app_state_init(app_state_handle_t *state_handle_ptr);
-void app_state_free(app_state_handle_t state_handle);

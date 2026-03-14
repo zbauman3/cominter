@@ -13,4 +13,3 @@ typedef struct network_events_t {
 typedef network_events_t *network_events_handle_t;
 
 esp_err_t network_events_init(network_events_handle_t *handle_ptr);
-void network_events_free(network_events_handle_t handle);
