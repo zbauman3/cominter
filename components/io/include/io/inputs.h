@@ -4,9 +4,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
-#include <lwip/netdb.h>
 
-#include "application/state.h"
+#include "application/device_info.h"
 #include "network/queues.h"
 
 #define IO_INPUTS_TASK_PRIORITY_INPUTS 4
@@ -23,12 +22,13 @@ typedef struct io_inputs_t {
   struct {
     int talk_btn;
   } pins;
-  app_state_handle_t state;
+  app_device_info_handle_t device_info;
   network_queues_handle_t network_queues;
 } io_inputs_t;
 
 typedef io_inputs_t *io_inputs_handle_t;
 
 esp_err_t io_inputs_init(io_inputs_handle_t *io_inputs_handle_ptr,
-                         int talk_btn_pin, app_state_handle_t state_handle,
+                         int talk_btn_pin,
+                         app_device_info_handle_t device_info_handle,
                          network_queues_handle_t network_queues_handle);

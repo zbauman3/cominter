@@ -1,16 +1,23 @@
 #include "esp_log.h"
 #include "esp_random.h"
 #include "esp_timer.h"
+#include <assert.h>
 #include <string.h>
 
 #include "network/messages.h"
 
 static const char *BASE_TAG = "NETWORK:MESSAGES";
 
+// if the to mac address is not provided, it will be set to the
+// broadcast address.
 esp_err_t network_message_init(network_message_handle_t *message_ptr,
                                network_message_type_t type,
                                network_mac_address_t from_mac_address,
                                network_mac_address_t to_mac_address) {
+
+  // from mac address is required
+  assert(from_mac_address != NULL);
+
   network_message_handle_t message =
       (network_message_handle_t)malloc(sizeof(network_message_t));
   if (message == NULL) {
@@ -20,7 +27,8 @@ esp_err_t network_message_init(network_message_handle_t *message_ptr,
   message->header.type = type;
   message->header.length = 0;
 
-  // uuid: 48-bit microsecond timestamp (big-endian) + 16-bit hardware RNG
+  // uuid: 48-bit microsecond timestamp + 16-bit hardware RNG
+  // stored in big-endian for network byte order
   int64_t ts = esp_timer_get_time();
   uint32_t rng = esp_random();
   message->header.uuid[0] = (uint8_t)((ts >> 40) & 0xFF);
@@ -32,15 +40,8 @@ esp_err_t network_message_init(network_message_handle_t *message_ptr,
   message->header.uuid[6] = (uint8_t)((rng >> 8) & 0xFF);
   message->header.uuid[7] = (uint8_t)(rng & 0xFF);
 
-  // mac addresses
-  if (from_mac_address != NULL) {
-    memcpy(message->header.from_mac_address, from_mac_address,
-           sizeof(network_mac_address_t));
-  } else {
-    memcpy(message->header.from_mac_address,
-           NETWORK_MESSAGE_BROADCAST_MAC_ADDRESS,
-           sizeof(network_mac_address_t));
-  }
+  memcpy(message->header.from_mac_address, from_mac_address,
+         sizeof(network_mac_address_t));
 
   if (to_mac_address != NULL) {
     memcpy(message->header.to_mac_address, to_mac_address,

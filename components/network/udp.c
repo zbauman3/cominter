@@ -4,7 +4,6 @@
 #include "esp_check.h"
 #include "esp_err.h"
 #include "esp_log.h"
-#include "esp_mac.h"
 #include "lwip/sockets.h"
 #include <lwip/netdb.h>
 #include <sys/param.h>
@@ -163,8 +162,8 @@ void network_udp_heartbeat_task(void *pvParameters) {
 
   while (true) {
     if (network_message_init_heartbeat(
-            &outgoing_message, network_udp_handle->state->device_info.name,
-            network_udp_handle->mac_address) != ESP_OK) {
+            &outgoing_message, network_udp_handle->device_info->name,
+            network_udp_handle->device_info->mac_address) != ESP_OK) {
       ESP_LOGE(UDP_HEARTBEAT_TAG, "Failed to initialize message");
       vTaskDelay(pdMS_TO_TICKS(1000));
       continue;
@@ -332,7 +331,8 @@ void udp_multicast_read_task(void *pvParameters) {
 
     // ----------------↓ TMP CODE ↓----------------
     network_message_handle_t incoming_message;
-    if (network_message_init(&incoming_message, MESSAGE_TYPE_UNKNOWN, NULL,
+    if (network_message_init(&incoming_message, MESSAGE_TYPE_UNKNOWN,
+                             network_udp_handle->device_info->mac_address,
                              NULL) != ESP_OK) {
       ESP_LOGE(MULTICAST_READ_TAG, "Failed to initialize message");
       continue;
@@ -391,7 +391,7 @@ void udp_multicast_read_task(void *pvParameters) {
     // check if the `to_mac_address` is the same as the local MAC address
     // of if it is the broadcast MAC address.
     if (memcmp(incoming_message->header.to_mac_address,
-               network_udp_handle->mac_address,
+               network_udp_handle->device_info->mac_address,
                sizeof(network_mac_address_t)) != 0 &&
         memcmp(incoming_message->header.to_mac_address,
                NETWORK_MESSAGE_BROADCAST_MAC_ADDRESS,
@@ -487,7 +487,8 @@ void udp_multicast_write_task(void *pvParameters) {
                NETWORK_MESSAGE_BROADCAST_MAC_ADDRESS,
                sizeof(network_mac_address_t)) == 0) {
       memcpy(outgoing_message->header.from_mac_address,
-             network_udp_handle->mac_address, sizeof(network_mac_address_t));
+             network_udp_handle->device_info->mac_address,
+             sizeof(network_mac_address_t));
     }
 
     if (socket_send_message(network_udp_handle->socket, outgoing_message,
@@ -510,7 +511,7 @@ esp_err_t network_udp_init(network_udp_handle_t *network_udp_handle_ptr,
                            network_events_handle_t events_handle,
                            network_queues_handle_t queues_handle,
                            network_peers_list_handle_t peers_handle,
-                           app_state_handle_t state_handle) {
+                           app_device_info_handle_t device_info_handle) {
   esp_err_t ret = ESP_OK;
   BaseType_t xReturned;
 
@@ -528,14 +529,7 @@ esp_err_t network_udp_init(network_udp_handle_t *network_udp_handle_ptr,
   network_udp_handle->events = events_handle;
   network_udp_handle->queues = queues_handle;
   network_udp_handle->peers = peers_handle;
-  network_udp_handle->state = state_handle;
-
-  if (esp_read_mac(network_udp_handle->mac_address, ESP_MAC_WIFI_STA) !=
-      ESP_OK) {
-    ESP_LOGE(BASE_TAG, "Failed to read MAC address");
-    ret = ESP_ERR_INVALID_STATE;
-    goto network_udp_init_error;
-  };
+  network_udp_handle->device_info = device_info_handle;
 
   xReturned =
       xTaskCreate(udp_multicast_write_task, MULTICAST_WRITE_TAG,

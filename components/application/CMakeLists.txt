@@ -1,7 +1,6 @@
 idf_component_register(
-  SRCS "state.c"
+  SRCS "device_info.c"
   INCLUDE_DIRS "include"
-  REQUIRES "esp_netif"
-  PRIV_REQUIRES "esp_timer"
+  REQUIRES "network" "storage"
   REQUIRED_IDF_TARGETS esp32
 )

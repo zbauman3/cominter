@@ -20,7 +20,7 @@ esp_err_t storage_nvs_init() {
   return ESP_OK;
 }
 
-esp_err_t storage_nvs_get_name(app_state_handle_t state_handle) {
+esp_err_t storage_nvs_get_name(char **name_ptr) {
   esp_err_t ret = ESP_OK;
   nvs_handle_t nvs_handle;
 
@@ -36,15 +36,19 @@ esp_err_t storage_nvs_get_name(app_state_handle_t state_handle) {
       storage_nvs_get_name_cleanup, TAG, "Error (%s) getting string length!",
       esp_err_to_name(ret));
 
-  if (state_handle->device_info.name != NULL) {
-    free(state_handle->device_info.name);
+  if (*name_ptr != NULL) {
+    free(*name_ptr);
   }
-  state_handle->device_info.name = (char *)malloc(str_len);
+  *name_ptr = (char *)malloc(str_len);
+  if (*name_ptr == NULL) {
+    ret = ESP_ERR_NO_MEM;
+    goto storage_nvs_get_name_cleanup;
+  }
 
-  ESP_GOTO_ON_ERROR(nvs_get_str(nvs_handle, NVS_DEVICE_INFO_NAME_KEY,
-                                state_handle->device_info.name, &str_len),
-                    storage_nvs_get_name_cleanup, TAG,
-                    "Error (%s) getting string value!", esp_err_to_name(ret));
+  ESP_GOTO_ON_ERROR(
+      nvs_get_str(nvs_handle, NVS_DEVICE_INFO_NAME_KEY, *name_ptr, &str_len),
+      storage_nvs_get_name_cleanup, TAG, "Error (%s) getting string value!",
+      esp_err_to_name(ret));
 
 storage_nvs_get_name_cleanup:
   nvs_close(nvs_handle);

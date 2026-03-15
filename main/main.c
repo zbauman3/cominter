@@ -4,7 +4,7 @@
 #include "esp_event.h"
 #include "esp_log.h"
 
-#include "application/state.h"
+#include "application/device_info.h"
 #include "io/inputs.h"
 #include "network/events.h"
 #include "network/peers.h"
@@ -17,7 +17,7 @@ static char *TAG = "APP_MAIN";
 
 #define TALK_BTN_PIN GPIO_NUM_35
 
-static app_state_handle_t state_handle;
+static app_device_info_handle_t device_info_handle;
 static io_inputs_handle_t io_inputs_handle;
 static network_events_handle_t network_events_handle;
 static network_peers_list_handle_t network_peers_list_handle;
@@ -34,11 +34,8 @@ esp_err_t init_app() {
   ESP_GOTO_ON_ERROR(esp_event_loop_create_default(), init_app_cleanup, TAG,
                     "Failed to create event loop");
 
-  ESP_GOTO_ON_ERROR(app_state_init(&state_handle), init_app_cleanup, TAG,
-                    "Failed to initialize app state");
-
-  ESP_GOTO_ON_ERROR(storage_nvs_get_name(state_handle), init_app_cleanup, TAG,
-                    "Failed to get device name from NVS");
+  ESP_GOTO_ON_ERROR(app_device_info_init(&device_info_handle), init_app_cleanup,
+                    TAG, "Failed to initialize app device info");
 
   ESP_GOTO_ON_ERROR(network_events_init(&network_events_handle),
                     init_app_cleanup, TAG,
@@ -54,7 +51,8 @@ esp_err_t init_app() {
 
   ESP_GOTO_ON_ERROR(network_udp_init(&network_udp_handle, network_events_handle,
                                      network_queues_handle,
-                                     network_peers_list_handle, state_handle),
+                                     network_peers_list_handle,
+                                     device_info_handle),
                     init_app_cleanup, TAG, "Failed to initialize network UDP");
 
   ESP_GOTO_ON_ERROR(network_wifi_init(&network_wifi_handle,
@@ -63,13 +61,18 @@ esp_err_t init_app() {
                     init_app_cleanup, TAG, "Failed to initialize network WiFi");
 
   ESP_GOTO_ON_ERROR(io_inputs_init(&io_inputs_handle, TALK_BTN_PIN,
-                                   state_handle, network_queues_handle),
+                                   device_info_handle, network_queues_handle),
                     init_app_cleanup, TAG, "Failed to initialize IO inputs");
 
-  ESP_LOGI(TAG, "Device name: %s", state_handle->device_info.name);
-  ESP_LOGI(TAG, "MAC address string: %s", state_handle->device_info.name);
+  ESP_LOGI(TAG, "Device name: %s", device_info_handle->name);
+  ESP_LOGI(
+      TAG, "Device MAC address: %02X:%02X:%02X:%02X:%02X:%02X",
+      device_info_handle->mac_address[0], device_info_handle->mac_address[1],
+      device_info_handle->mac_address[2], device_info_handle->mac_address[3],
+      device_info_handle->mac_address[4], device_info_handle->mac_address[5]);
 
 init_app_cleanup:
+  // no cleanup needed. We're just going to restart the app.
   return ret;
 }
 

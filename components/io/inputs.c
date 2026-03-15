@@ -28,8 +28,9 @@ void io_inputs_task(void *pvParameters) {
 
     ESP_LOGI(TASK_TAG, "Talk button pressed");
 
-    if (network_message_init_text(&outgoing_message, "Hi!", NULL, NULL) !=
-        ESP_OK) {
+    if (network_message_init_text(&outgoing_message, "Hi!",
+                                  io_inputs_handle->device_info->mac_address,
+                                  NULL) != ESP_OK) {
       ESP_LOGE(TASK_TAG, "Failed to initialize message");
       continue;
     }
@@ -48,7 +49,8 @@ void io_inputs_task(void *pvParameters) {
 }
 
 esp_err_t io_inputs_init(io_inputs_handle_t *io_inputs_handle_ptr,
-                         int talk_btn_pin, app_state_handle_t state_handle,
+                         int talk_btn_pin,
+                         app_device_info_handle_t device_info_handle,
                          network_queues_handle_t network_queues_handle) {
   io_inputs_handle_t io_inputs_handle =
       (io_inputs_handle_t)malloc(sizeof(io_inputs_t));
@@ -57,7 +59,7 @@ esp_err_t io_inputs_init(io_inputs_handle_t *io_inputs_handle_ptr,
     return ESP_ERR_NO_MEM;
   }
 
-  io_inputs_handle->state = state_handle;
+  io_inputs_handle->device_info = device_info_handle;
   io_inputs_handle->network_queues = network_queues_handle;
 
   io_inputs_handle->queues.inputs_queue = xQueueCreate(10, sizeof(uint32_t));

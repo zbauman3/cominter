@@ -5,7 +5,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#include "application/state.h"
+#include "application/device_info.h"
 #include "network/events.h"
 #include "network/peers.h"
 #include "network/queues.h"
@@ -29,8 +29,6 @@ typedef struct network_udp_t {
   int socket;
   struct addrinfo *multicast_addr_info;
   esp_netif_ip_info_t *ip_info;
-  // this is the MAC address of the device
-  network_mac_address_t mac_address;
 
   struct {
     TaskHandle_t socket;
@@ -42,7 +40,7 @@ typedef struct network_udp_t {
   network_events_handle_t events;
   network_queues_handle_t queues;
   network_peers_list_handle_t peers;
-  app_state_handle_t state;
+  app_device_info_handle_t device_info;
 } network_udp_t;
 
 typedef network_udp_t *network_udp_handle_t;
@@ -51,5 +49,5 @@ esp_err_t network_udp_init(network_udp_handle_t *network_udp_handle_ptr,
                            network_events_handle_t events_handle,
                            network_queues_handle_t queues_handle,
                            network_peers_list_handle_t peers_handle,
-                           app_state_handle_t state_handle);
+                           app_device_info_handle_t device_info_handle);
 void network_udp_socket_close(network_udp_handle_t network_udp_handle);
