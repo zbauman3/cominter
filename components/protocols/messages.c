@@ -11,12 +11,19 @@ static const char *BASE_TAG = "NETWORK:MESSAGES";
 // if the to mac address is not provided, it will be set to the
 // broadcast address.
 esp_err_t app_message_init(app_message_handle_t *message_ptr,
-                           app_message_type_t type,
+                           app_message_type_t type, int length,
                            network_mac_address_t from_mac_address,
                            network_mac_address_t to_mac_address) {
 
   // from mac address is required
-  assert(from_mac_address != NULL);
+  if (from_mac_address == NULL) {
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  // check that the input length doesn't exceed the allowed length
+  if (length < 0 || length > APP_MESSAGE_BODY_MAX_LENGTH) {
+    return ESP_ERR_INVALID_ARG;
+  }
 
   app_message_handle_t message =
       (app_message_handle_t)malloc(sizeof(app_message_t));
@@ -25,7 +32,7 @@ esp_err_t app_message_init(app_message_handle_t *message_ptr,
   }
 
   message->header.type = type;
-  message->header.length = 0;
+  message->header.length = length;
 
   // uuid: 48-bit microsecond timestamp + 16-bit hardware RNG
   // stored in big-endian for network byte order
@@ -78,13 +85,14 @@ esp_err_t app_message_init_text(app_message_handle_t *message_ptr, char *value,
                                 network_mac_address_t to_mac_address) {
   esp_err_t ret = ESP_OK;
 
-  ret = app_message_init(message_ptr, MESSAGE_TYPE_TEXT, from_mac_address,
-                         to_mac_address);
+  int length = (strlen(value) + 1) * sizeof(char);
+
+  ret = app_message_init(message_ptr, MESSAGE_TYPE_TEXT, length,
+                         from_mac_address, to_mac_address);
   if (ret != ESP_OK) {
     return ret;
   }
 
-  (*message_ptr)->header.length = (strlen(value) + 1) * sizeof(char);
   (*message_ptr)->text.value = (char *)malloc((*message_ptr)->header.length);
   if ((*message_ptr)->text.value == NULL) {
     app_message_free(*message_ptr);
@@ -101,13 +109,13 @@ esp_err_t app_message_init_heartbeat(app_message_handle_t *message_ptr,
                                      network_mac_address_t from_mac_address) {
   esp_err_t ret = ESP_OK;
 
-  ret = app_message_init(message_ptr, MESSAGE_TYPE_HEARTBEAT, from_mac_address,
-                         NULL);
+  int length = (strlen(from_name) + 1) * sizeof(char);
+  ret = app_message_init(message_ptr, MESSAGE_TYPE_HEARTBEAT, length,
+                         from_mac_address, NULL);
   if (ret != ESP_OK) {
     return ret;
   }
 
-  (*message_ptr)->header.length = (strlen(from_name) + 1) * sizeof(char);
   (*message_ptr)->heartbeat.from_name =
       (char *)malloc((*message_ptr)->header.length);
   if ((*message_ptr)->heartbeat.from_name == NULL) {
@@ -126,13 +134,12 @@ esp_err_t app_message_init_audio(app_message_handle_t *message_ptr,
                                  network_mac_address_t to_mac_address) {
   esp_err_t ret = ESP_OK;
 
-  ret = app_message_init(message_ptr, MESSAGE_TYPE_AUDIO, from_mac_address,
-                         to_mac_address);
+  ret = app_message_init(message_ptr, MESSAGE_TYPE_AUDIO, length,
+                         from_mac_address, to_mac_address);
   if (ret != ESP_OK) {
     return ret;
   }
 
-  (*message_ptr)->header.length = length;
   (*message_ptr)->audio.value = (uint8_t *)malloc(length);
   if ((*message_ptr)->audio.value == NULL) {
     app_message_free(*message_ptr);

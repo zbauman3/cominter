@@ -300,7 +300,7 @@ void udp_multicast_read_task(void *pvParameters) {
 
     // TODO: If we can remove this usage of `device_info` then we don't need to
     // depend on `device_info` at all
-    if (app_message_init(&message_incoming, MESSAGE_TYPE_UNKNOWN,
+    if (app_message_init(&message_incoming, MESSAGE_TYPE_UNKNOWN, 0,
                          network_udp_handle->device_info->mac_address,
                          NULL) != ESP_OK) {
       ESP_LOGE(MULTICAST_READ_TAG, "Failed to initialize message");

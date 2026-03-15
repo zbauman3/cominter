@@ -9,6 +9,8 @@
 // Riding on the back of giants with the same max as QUIC.
 // https://datatracker.ietf.org/doc/html/rfc9000#name-datagram-size
 #define APP_MESSAGE_MAX_LENGTH 1200
+#define APP_MESSAGE_BODY_MAX_LENGTH                                            \
+  (APP_MESSAGE_MAX_LENGTH - sizeof(app_message_header_t))
 
 typedef enum app_message_type_t {
   MESSAGE_TYPE_UNKNOWN = 0,
@@ -53,7 +55,7 @@ typedef struct app_message_t {
 typedef app_message_t *app_message_handle_t;
 
 esp_err_t app_message_init(app_message_handle_t *message_ptr,
-                           app_message_type_t type,
+                           app_message_type_t type, int length,
                            network_mac_address_t from_mac_address,
                            network_mac_address_t to_mac_address);
 esp_err_t app_message_init_text(app_message_handle_t *message_ptr, char *value,
