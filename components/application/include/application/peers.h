@@ -34,7 +34,8 @@ typedef struct app_peers_list_t {
 typedef struct app_peers_t {
   app_peers_list_t list;
   struct {
-    TaskHandle_t heartbeat;
+    TaskHandle_t heartbeat_send;
+    TaskHandle_t heartbeat_receive;
   } tasks;
   app_device_info_handle_t device_info;
   app_queues_handle_t queues;

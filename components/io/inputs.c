@@ -17,7 +17,6 @@ void io_inputs_task(void *pvParameters) {
   io_inputs_handle_t io_inputs_handle = (io_inputs_handle_t)pvParameters;
   uint32_t io_num;
   app_message_handle_t outgoing_message;
-  BaseType_t xReturned;
 
   while (1) {
     xQueueReceive(io_inputs_handle->queues.inputs_queue, &io_num,
@@ -28,22 +27,20 @@ void io_inputs_task(void *pvParameters) {
 
     ESP_LOGI(TASK_TAG, "Talk button pressed");
 
-    if (app_message_init_text(&outgoing_message, "Hi!",
+    if (app_message_init_text(&outgoing_message, "Button pressed!",
                               io_inputs_handle->device_info->mac_address,
                               NULL) != ESP_OK) {
       ESP_LOGE(TASK_TAG, "Failed to initialize message");
       continue;
     }
 
-    xReturned = xQueueSendToBack(io_inputs_handle->app_queues->message_outgoing,
-                                 &outgoing_message, (500 / portTICK_PERIOD_MS));
-    if (xReturned != pdPASS) {
-      ESP_LOGE(TASK_TAG, "Failed to send message to queue. Dropping message.");
+    if (app_queues_add_outgoing_message(io_inputs_handle->app_queues,
+                                        &outgoing_message, pdMS_TO_TICKS(500),
+                                        false) != ESP_OK) {
+      ESP_LOGE(TASK_TAG, "Failed to send button message to queue");
       app_message_free(outgoing_message);
+      outgoing_message = NULL;
     }
-
-    // the queue will now own the message.
-    outgoing_message = NULL;
   }
 }
 

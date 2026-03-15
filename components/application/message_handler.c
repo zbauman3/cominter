@@ -13,8 +13,13 @@ void app_message_handler_task(void *pvParameters) {
   app_peer_handle_t peer_handle = NULL;
 
   while (1) {
-    xQueueReceive(message_handler->queues->message_incoming, &message_incoming,
-                  portMAX_DELAY);
+    if (app_queues_receive_incoming_message(
+            message_handler->queues, &message_incoming, MESSAGE_TYPE_TEXT,
+            portMAX_DELAY) != ESP_OK) {
+      ESP_LOGE(MESSAGE_HANDLER_TAG, "Failed to receive text from queue");
+      vTaskDelay(pdMS_TO_TICKS(15));
+      continue;
+    }
 
     ESP_LOGI(
         MESSAGE_HANDLER_TAG, "UUID: %02X:%02X:%02X:%02X:%02X:%02X:%02X:%02X",
@@ -48,27 +53,9 @@ void app_message_handler_task(void *pvParameters) {
     app_peer_free(peer_handle);
     peer_handle = NULL;
 
-    switch (message_incoming->header.type) {
-    case MESSAGE_TYPE_TEXT:
-      ESP_LOGI(MESSAGE_HANDLER_TAG, "%s\n", message_incoming->text.value);
-      break;
-    case MESSAGE_TYPE_AUDIO:
-      ESP_LOGI(MESSAGE_HANDLER_TAG, "Audio message of length %d received\n",
-               message_incoming->header.length);
-      break;
-    case MESSAGE_TYPE_HEARTBEAT:
-      ESP_LOGI(MESSAGE_HANDLER_TAG, "Heartbeat");
-      app_peers_add(message_handler->peers,
-                    message_incoming->header.from_mac_address,
-                    message_incoming->heartbeat.from_name);
-      ESP_LOGI(MESSAGE_HANDLER_TAG, "Number of peers: %d\n",
-               app_peers_count(message_handler->peers));
-      break;
-    default:
-      ESP_LOGE(MESSAGE_HANDLER_TAG, "Unknown message type: %d\n",
-               message_incoming->header.type);
-      break;
-    }
+    // Right now, we only support text messages.
+    // will need better logic here in the future.
+    ESP_LOGI(MESSAGE_HANDLER_TAG, "%s\n", message_incoming->text.value);
 
     app_message_free(message_incoming);
     message_incoming = NULL;

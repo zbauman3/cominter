@@ -10,7 +10,9 @@
 #include "application/peers.h"
 
 // static const char *BASE_TAG = "APPLICATION:PEERS";
-static const char *PEERS_TASK_TAG = "APPLICATION:PEERS:TASK";
+static const char *PEERS_HB_SEND_TASK_TAG = "APPLICATION:PEERS:HB_SENDTASK";
+static const char *PEERS_HB_RECEIVE_TASK_TAG =
+    "APPLICATION:PEERS:HB_RECEIVETASK";
 
 esp_err_t app_peers_remove(app_peers_handle_t peers_handle,
                            network_mac_address_t mac_address,
@@ -83,9 +85,8 @@ esp_err_t app_peers_prune(app_peers_handle_t peers_handle) {
   return ESP_OK;
 }
 
-void app_peers_heartbeat_task(void *pvParameters) {
+void app_peers_heartbeat_send_task(void *pvParameters) {
   app_peers_handle_t app_peers_handle = (app_peers_handle_t)pvParameters;
-  BaseType_t xReturned;
   app_message_handle_t outgoing_message;
 
   // when first coming on the network, send 10 heartbeats to make sure we're
@@ -106,22 +107,18 @@ void app_peers_heartbeat_task(void *pvParameters) {
     if (app_message_init_heartbeat(
             &outgoing_message, app_peers_handle->device_info->name,
             app_peers_handle->device_info->mac_address) != ESP_OK) {
-      ESP_LOGE(PEERS_TASK_TAG, "Failed to initialize message");
+      ESP_LOGE(PEERS_HB_SEND_TASK_TAG, "Failed to initialize message");
       vTaskDelay(pdMS_TO_TICKS(1000));
       continue;
     }
 
-    xReturned = xQueueSendToBack(
-        app_peers_handle->queues->message_outgoing, &outgoing_message,
-        pdMS_TO_TICKS(APP_PEERS_HEARTBEAT_WAIT_MAX_MS));
-    if (xReturned != pdPASS) {
-      ESP_LOGE(PEERS_TASK_TAG,
-               "Failed to send message to queue. Dropping message.");
+    if (app_queues_add_outgoing_message(
+            app_peers_handle->queues, &outgoing_message,
+            pdMS_TO_TICKS(APP_PEERS_HEARTBEAT_WAIT_MAX_MS), false) != ESP_OK) {
+      ESP_LOGE(PEERS_HB_SEND_TASK_TAG, "Failed to send heartbeat to queue");
       app_message_free(outgoing_message);
+      outgoing_message = NULL;
     }
-
-    // the queue will now own the message.
-    outgoing_message = NULL;
 
     // prune while we're here
     app_peers_prune(app_peers_handle);
@@ -132,6 +129,34 @@ void app_peers_heartbeat_task(void *pvParameters) {
     } else {
       vTaskDelay(pdMS_TO_TICKS(APP_PEERS_HEARTBEAT_INTERVAL_MS));
     }
+  }
+}
+
+void app_peers_heartbeat_receive_task(void *pvParameters) {
+  app_peers_handle_t app_peers_handle = (app_peers_handle_t)pvParameters;
+  app_message_handle_t incoming_message = NULL;
+
+  while (true) {
+    if (app_queues_receive_incoming_message(
+            app_peers_handle->queues, &incoming_message, MESSAGE_TYPE_HEARTBEAT,
+            portMAX_DELAY) != ESP_OK) {
+      ESP_LOGE(PEERS_HB_RECEIVE_TASK_TAG,
+               "Failed to receive heartbeat from queue");
+      vTaskDelay(pdMS_TO_TICKS(15));
+      continue;
+    }
+
+    // not handling the failure here. We'll catch it on the next heartbeat send.
+    app_peers_add(app_peers_handle, incoming_message->header.from_mac_address,
+                  incoming_message->heartbeat.from_name);
+
+    ESP_LOGI(PEERS_HB_RECEIVE_TASK_TAG, "Heartbeat from: %s",
+             incoming_message->heartbeat.from_name);
+    ESP_LOGI(PEERS_HB_RECEIVE_TASK_TAG, "Number of peers: %d\n",
+             app_peers_count(app_peers_handle));
+
+    app_message_free(incoming_message);
+    incoming_message = NULL;
   }
 }
 
@@ -152,14 +177,25 @@ esp_err_t app_peers_init(app_peers_handle_t *peers_handle_ptr,
     return ESP_ERR_NO_MEM;
   }
 
-  app_peers_handle->tasks.heartbeat = NULL;
-  if (xTaskCreate(app_peers_heartbeat_task, PEERS_TASK_TAG,
+  app_peers_handle->tasks.heartbeat_send = NULL;
+  if (xTaskCreate(app_peers_heartbeat_send_task, PEERS_HB_SEND_TASK_TAG,
                   APP_PEERS_TASK_STACK_DEPTH_HEARTBEAT, app_peers_handle,
                   APP_PEERS_TASK_PRIORITY_HEARTBEAT,
-                  &app_peers_handle->tasks.heartbeat) != pdPASS) {
+                  &app_peers_handle->tasks.heartbeat_send) != pdPASS) {
     return ESP_ERR_NO_MEM;
   }
-  if (app_peers_handle->tasks.heartbeat == NULL) {
+  if (app_peers_handle->tasks.heartbeat_send == NULL) {
+    return ESP_ERR_NO_MEM;
+  }
+
+  app_peers_handle->tasks.heartbeat_receive = NULL;
+  if (xTaskCreate(app_peers_heartbeat_receive_task, PEERS_HB_RECEIVE_TASK_TAG,
+                  APP_PEERS_TASK_STACK_DEPTH_HEARTBEAT, app_peers_handle,
+                  APP_PEERS_TASK_PRIORITY_HEARTBEAT,
+                  &app_peers_handle->tasks.heartbeat_receive) != pdPASS) {
+    return ESP_ERR_NO_MEM;
+  }
+  if (app_peers_handle->tasks.heartbeat_receive == NULL) {
     return ESP_ERR_NO_MEM;
   }
 
@@ -226,7 +262,7 @@ void app_peers_find(app_peers_handle_t peers_handle,
       // found the peer. Copy it.
       *peer_handle_ptr = (app_peer_handle_t)malloc(sizeof(app_peer_t));
       if (*peer_handle_ptr == NULL) {
-        ESP_LOGE(PEERS_TASK_TAG, "Failed to allocate memory for peer");
+        ESP_LOGE(PEERS_HB_SEND_TASK_TAG, "Failed to allocate memory for peer");
         if (should_lock) {
           xSemaphoreGive(peers_handle->list.mutex);
         }
@@ -236,7 +272,8 @@ void app_peers_find(app_peers_handle_t peers_handle,
       memcpy(*peer_handle_ptr, current_peer, sizeof(app_peer_t));
       (*peer_handle_ptr)->name = strdup(current_peer->name);
       if ((*peer_handle_ptr)->name == NULL) {
-        ESP_LOGE(PEERS_TASK_TAG, "Failed to allocate memory for peer name");
+        ESP_LOGE(PEERS_HB_SEND_TASK_TAG,
+                 "Failed to allocate memory for peer name");
         free(*peer_handle_ptr);
         *peer_handle_ptr = NULL;
       }

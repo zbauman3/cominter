@@ -333,32 +333,34 @@ void udp_multicast_read_task(void *pvParameters) {
     ESP_LOGD(MULTICAST_READ_TAG, "Message type: %d\n",
              message_incoming->header.type);
 
-    if (xQueueSendToBack(network_udp_handle->queues->message_incoming,
-                         &message_incoming, pdMS_TO_TICKS(5)) != pdPASS) {
-      ESP_LOGE(MULTICAST_READ_TAG, "Failed to send message to queue");
+    if (app_queues_add_incoming_message(network_udp_handle->queues,
+                                        &message_incoming,
+                                        pdMS_TO_TICKS(5)) != ESP_OK) {
+      ESP_LOGE(MULTICAST_READ_TAG,
+               "Failed to add message to incoming queue. Dropping message.");
       app_message_free(message_incoming);
       message_incoming = NULL;
-      continue;
     }
-
-    // the queue will now own the message.
-    message_incoming = NULL;
   }
 }
 
 void udp_multicast_write_task(void *pvParameters) {
   network_udp_handle_t network_udp_handle = (network_udp_handle_t)pvParameters;
-  app_message_handle_t message_outgoing;
+  app_message_handle_t outgoing_message;
 
   while (true) {
+    // wait for the message queue to have a message
+    if (app_queues_receive_outgoing_message(network_udp_handle->queues,
+                                            &outgoing_message,
+                                            portMAX_DELAY) != ESP_OK) {
+      ESP_LOGE(MULTICAST_WRITE_TAG, "Failed to receive message from queue");
+      vTaskDelay(pdMS_TO_TICKS(10));
+      continue;
+    }
+
     xEventGroupWaitBits(network_udp_handle->events->group_handle,
                         NETWORK_EVENT_SOCKET_READY, pdFALSE, pdFALSE,
                         portMAX_DELAY);
-
-    // wait for the message queue to have a message
-    BaseType_t xReturned =
-        xQueueReceive(network_udp_handle->queues->message_outgoing,
-                      &message_outgoing, portMAX_DELAY);
 
     // The socket could have been closed while waiting.
     // So we need to check if it's still open.
@@ -367,50 +369,46 @@ void udp_multicast_write_task(void *pvParameters) {
     if (!(bits_waiting & NETWORK_EVENT_SOCKET_READY)) {
       ESP_LOGD(MULTICAST_WRITE_TAG, "Socket not ready, skipping write");
 
-      xReturned = xQueueSendToFront(
-          network_udp_handle->queues->message_outgoing, &message_outgoing, 0);
-      if (xReturned == pdPASS) {
+      // return the message to the queue to be cleaned up by the next write task
+      if (app_queues_add_outgoing_message(network_udp_handle->queues,
+                                          &outgoing_message, 0,
+                                          true) == ESP_OK) {
         // intentionally do not clean up the message here.
-        // it was put back in the queue to be cleaned up by the next
+        // it was put back in the queue to be cleaned up by the next write task
         continue;
+      } else {
+        ESP_LOGE(MULTICAST_WRITE_TAG,
+                 "Failed to return message to queue, dropping message.");
+        goto udp_multicast_write_task_end;
       }
-
-      ESP_LOGE(MULTICAST_WRITE_TAG,
-               "Failed to return message to queue. Dropping message.");
-      goto udp_multicast_write_task_end;
-    }
-
-    if (xReturned != pdPASS) {
-      ESP_LOGE(MULTICAST_WRITE_TAG, "Failed to receive message from queue");
-      goto udp_multicast_write_task_end;
     }
 
     ESP_LOGD(
         MULTICAST_WRITE_TAG, "UUID: %02X:%02X:%02X:%02X:%02X:%02X:%02X:%02X",
-        message_outgoing->header.uuid[0], message_outgoing->header.uuid[1],
-        message_outgoing->header.uuid[2], message_outgoing->header.uuid[3],
-        message_outgoing->header.uuid[4], message_outgoing->header.uuid[5],
-        message_outgoing->header.uuid[6], message_outgoing->header.uuid[7]);
+        outgoing_message->header.uuid[0], outgoing_message->header.uuid[1],
+        outgoing_message->header.uuid[2], outgoing_message->header.uuid[3],
+        outgoing_message->header.uuid[4], outgoing_message->header.uuid[5],
+        outgoing_message->header.uuid[6], outgoing_message->header.uuid[7]);
     ESP_LOGD(MULTICAST_WRITE_TAG,
              "TO MAC address: %02X:%02X:%02X:%02X:%02X:%02X",
-             message_outgoing->header.to_mac_address[0],
-             message_outgoing->header.to_mac_address[1],
-             message_outgoing->header.to_mac_address[2],
-             message_outgoing->header.to_mac_address[3],
-             message_outgoing->header.to_mac_address[4],
-             message_outgoing->header.to_mac_address[5]);
+             outgoing_message->header.to_mac_address[0],
+             outgoing_message->header.to_mac_address[1],
+             outgoing_message->header.to_mac_address[2],
+             outgoing_message->header.to_mac_address[3],
+             outgoing_message->header.to_mac_address[4],
+             outgoing_message->header.to_mac_address[5]);
     ESP_LOGD(MULTICAST_WRITE_TAG, "Message type: %d\n",
-             message_outgoing->header.type);
+             outgoing_message->header.type);
 
-    if (socket_send_message(network_udp_handle->socket, message_outgoing,
+    if (socket_send_message(network_udp_handle->socket, outgoing_message,
                             network_udp_handle->multicast_addr_info) !=
         ESP_OK) {
       ESP_LOGE(MULTICAST_WRITE_TAG, "Failed to send message");
     }
 
   udp_multicast_write_task_end:
-    app_message_free(message_outgoing);
-    message_outgoing = NULL;
+    app_message_free(outgoing_message);
+    outgoing_message = NULL;
   }
 }
 
