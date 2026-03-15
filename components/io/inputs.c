@@ -1,8 +1,8 @@
 #include "driver/gpio.h"
 #include "esp_log.h"
 
+#include "application/messages.h"
 #include "io/inputs.h"
-#include "network/messages.h"
 
 static const char *BASE_TAG = "IO:INPUTS";
 static const char *TASK_TAG = "IO:INPUTS:TASK";
@@ -16,7 +16,7 @@ void IRAM_ATTR io_inputs_talk_btn_isr(void *arg) {
 void io_inputs_task(void *pvParameters) {
   io_inputs_handle_t io_inputs_handle = (io_inputs_handle_t)pvParameters;
   uint32_t io_num;
-  network_message_handle_t outgoing_message;
+  app_message_handle_t outgoing_message;
   BaseType_t xReturned;
 
   while (1) {
@@ -28,19 +28,18 @@ void io_inputs_task(void *pvParameters) {
 
     ESP_LOGI(TASK_TAG, "Talk button pressed");
 
-    if (network_message_init_text(&outgoing_message, "Hi!",
-                                  io_inputs_handle->device_info->mac_address,
-                                  NULL) != ESP_OK) {
+    if (app_message_init_text(&outgoing_message, "Hi!",
+                              io_inputs_handle->device_info->mac_address,
+                              NULL) != ESP_OK) {
       ESP_LOGE(TASK_TAG, "Failed to initialize message");
       continue;
     }
 
-    xReturned =
-        xQueueSendToBack(io_inputs_handle->network_queues->message_outgoing,
-                         &outgoing_message, (500 / portTICK_PERIOD_MS));
+    xReturned = xQueueSendToBack(io_inputs_handle->app_queues->message_outgoing,
+                                 &outgoing_message, (500 / portTICK_PERIOD_MS));
     if (xReturned != pdPASS) {
       ESP_LOGE(TASK_TAG, "Failed to send message to queue. Dropping message.");
-      network_message_free(outgoing_message);
+      app_message_free(outgoing_message);
     }
 
     // the queue will now own the message.
@@ -51,7 +50,7 @@ void io_inputs_task(void *pvParameters) {
 esp_err_t io_inputs_init(io_inputs_handle_t *io_inputs_handle_ptr,
                          int talk_btn_pin,
                          app_device_info_handle_t device_info_handle,
-                         network_queues_handle_t network_queues_handle) {
+                         app_queues_handle_t app_queues_handle) {
   io_inputs_handle_t io_inputs_handle =
       (io_inputs_handle_t)malloc(sizeof(io_inputs_t));
   if (io_inputs_handle == NULL) {
@@ -60,7 +59,7 @@ esp_err_t io_inputs_init(io_inputs_handle_t *io_inputs_handle_ptr,
   }
 
   io_inputs_handle->device_info = device_info_handle;
-  io_inputs_handle->network_queues = network_queues_handle;
+  io_inputs_handle->app_queues = app_queues_handle;
 
   io_inputs_handle->queues.inputs_queue = xQueueCreate(10, sizeof(uint32_t));
   if (io_inputs_handle->queues.inputs_queue == NULL) {

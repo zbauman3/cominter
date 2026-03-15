@@ -6,7 +6,7 @@
 #include "freertos/task.h"
 
 #include "application/device_info.h"
-#include "network/queues.h"
+#include "application/queues.h"
 
 #define IO_INPUTS_TASK_PRIORITY_INPUTS 4
 
@@ -23,7 +23,7 @@ typedef struct io_inputs_t {
     int talk_btn;
   } pins;
   app_device_info_handle_t device_info;
-  network_queues_handle_t network_queues;
+  app_queues_handle_t app_queues;
 } io_inputs_t;
 
 typedef io_inputs_t *io_inputs_handle_t;
@@ -31,4 +31,4 @@ typedef io_inputs_t *io_inputs_handle_t;
 esp_err_t io_inputs_init(io_inputs_handle_t *io_inputs_handle_ptr,
                          int talk_btn_pin,
                          app_device_info_handle_t device_info_handle,
-                         network_queues_handle_t network_queues_handle);
+                         app_queues_handle_t app_queues_handle);

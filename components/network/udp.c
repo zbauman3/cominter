@@ -8,14 +8,13 @@
 #include <lwip/netdb.h>
 #include <sys/param.h>
 
-#include "network/messages.h"
+#include "application/messages.h"
 #include "network/udp.h"
 
 static const char *BASE_TAG = "NETWORK:UDP";
 static const char *SOCKET_TAG = "NETWORK:UDP:SOCKET";
 static const char *MULTICAST_WRITE_TAG = "NETWORK:UDP:MULTICAST:WRITE";
 static const char *MULTICAST_READ_TAG = "NETWORK:UDP:MULTICAST:READ";
-static const char *UDP_HEARTBEAT_TAG = "NETWORK:UDP:HEARTBEAT";
 
 // // ----------------
 // // Socket Stuff
@@ -93,6 +92,11 @@ esp_err_t udp_socket_create(network_udp_handle_t network_udp_handle) {
       .ai_family = AF_INET,
   };
 
+  if (network_udp_handle->multicast_addr_info != NULL) {
+    freeaddrinfo(network_udp_handle->multicast_addr_info);
+    network_udp_handle->multicast_addr_info = NULL;
+  }
+
   ESP_GOTO_ON_FALSE(getaddrinfo(CONFIG_MULTICAST_ADDR, NULL, &hints,
                                 &network_udp_handle->multicast_addr_info) >= 0,
                     ESP_ERR_INVALID_STATE, udp_multicast_socket_create_end,
@@ -124,7 +128,7 @@ void udp_socket_task(void *pvParameters) {
     xEventGroupWaitBits(network_udp_handle->events->group_handle,
                         NETWORK_EVENT_GOT_NEW_IP, pdTRUE, pdTRUE,
                         portMAX_DELAY);
-    ESP_LOGI(SOCKET_TAG, "Got new IP, creating socket...");
+    ESP_LOGD(SOCKET_TAG, "Got new IP, creating socket...");
 
     network_udp_socket_close(network_udp_handle);
 
@@ -136,7 +140,7 @@ void udp_socket_task(void *pvParameters) {
         ESP_LOGE(SOCKET_TAG, "Failed to create multicast socket. Retrying...");
         vTaskDelay(100 / portTICK_PERIOD_MS);
       } else {
-        ESP_LOGI(SOCKET_TAG, "Socket created successfully");
+        ESP_LOGD(SOCKET_TAG, "Socket created successfully");
         // wait a bit to make sure the socket is ready
         vTaskDelay(pdMS_TO_TICKS(150));
         xEventGroupSetBits(network_udp_handle->events->group_handle,
@@ -146,56 +150,14 @@ void udp_socket_task(void *pvParameters) {
   }
 }
 
-void network_udp_heartbeat_task(void *pvParameters) {
-  network_udp_handle_t network_udp_handle = (network_udp_handle_t)pvParameters;
-  network_message_handle_t outgoing_message;
-  BaseType_t xReturned;
-
-  // when first coming on the network, send 10 heartbeats to make sure we're
-  // put into peer lists.
-  // ---------------------------------------------------------------------------
-  // Need to work on this. Ideally this system would work:
-  // - Every time the network comes online, send 6 heartbeats.
-  // - Every time we receive a heartbeat from a peer, send 3 in response.
-  // ---------------------------------------------------------------------------
-  uint8_t init_heartbeat_count = 10;
-
-  while (true) {
-    if (network_message_init_heartbeat(
-            &outgoing_message, network_udp_handle->device_info->name,
-            network_udp_handle->device_info->mac_address) != ESP_OK) {
-      ESP_LOGE(UDP_HEARTBEAT_TAG, "Failed to initialize message");
-      vTaskDelay(pdMS_TO_TICKS(1000));
-      continue;
-    }
-
-    xReturned = xQueueSendToBack(network_udp_handle->queues->message_outgoing,
-                                 &outgoing_message, pdMS_TO_TICKS(5000));
-    if (xReturned != pdPASS) {
-      ESP_LOGE(UDP_HEARTBEAT_TAG,
-               "Failed to send message to queue. Dropping message.");
-      network_message_free(outgoing_message);
-    }
-
-    // the queue will now own the message.
-    outgoing_message = NULL;
-
-    // prune while we're here
-    network_peers_prune(network_udp_handle->peers);
-
-    if (init_heartbeat_count > 0) {
-      init_heartbeat_count--;
-      vTaskDelay(pdMS_TO_TICKS(NETWORK_UDP_HEARTBEAT_INIT_INTERVAL_MS));
-    } else {
-      vTaskDelay(pdMS_TO_TICKS(NETWORK_UDP_HEARTBEAT_INTERVAL_MS));
-    }
-  }
-}
-
 void network_udp_socket_close(network_udp_handle_t network_udp_handle) {
   if (network_udp_handle->socket >= 0) {
     shutdown(network_udp_handle->socket, SHUT_RDWR);
     close(network_udp_handle->socket);
+  }
+  if (network_udp_handle->multicast_addr_info != NULL) {
+    freeaddrinfo(network_udp_handle->multicast_addr_info);
+    network_udp_handle->multicast_addr_info = NULL;
   }
   xEventGroupClearBits(network_udp_handle->events->group_handle,
                        NETWORK_EVENT_SOCKET_READY);
@@ -206,40 +168,40 @@ void network_udp_socket_close(network_udp_handle_t network_udp_handle) {
 // // Multicast Stuff
 // // ----------------
 
-esp_err_t socket_receive_message(int socket, network_message_handle_t message) {
+esp_err_t socket_receive_message(int socket, app_message_handle_t message) {
   // increase by 1 to check if the incoming message was longer than the max size
   // so that we can detect invalid messages easily by checking the length.
-  uint8_t buffer[NETWORK_MESSAGE_MAX_LENGTH + 1];
+  uint8_t buffer[APP_MESSAGE_MAX_LENGTH + 1];
   int length = 0;
 
-  length = recv(socket, buffer, NETWORK_MESSAGE_MAX_LENGTH + 1, 0);
+  length = recv(socket, buffer, APP_MESSAGE_MAX_LENGTH + 1, 0);
 
   if (length < 0) {
     ESP_LOGE(MULTICAST_READ_TAG, "multicast recvfrom failed: errno %d", errno);
     return ESP_ERR_INVALID_STATE;
   }
 
-  if (length < sizeof(network_message_header_t)) {
+  if (length < sizeof(app_message_header_t)) {
     ESP_LOGE(MULTICAST_READ_TAG, "Message length too short: %d", length);
     return ESP_ERR_INVALID_STATE;
   }
 
-  if (length > NETWORK_MESSAGE_MAX_LENGTH) {
+  if (length > APP_MESSAGE_MAX_LENGTH) {
     ESP_LOGE(MULTICAST_READ_TAG, "Message length too long: %d", length);
     return ESP_ERR_INVALID_STATE;
   }
 
-  memcpy(&message->header, buffer, sizeof(network_message_header_t));
+  memcpy(&message->header, buffer, sizeof(app_message_header_t));
 
-  int payload_len = length - sizeof(network_message_header_t);
+  int payload_len = length - sizeof(app_message_header_t);
   if (payload_len != message->header.length) {
     ESP_LOGE(MULTICAST_READ_TAG, "Payload length mismatch: expected %d, got %d",
              message->header.length, payload_len);
     return ESP_ERR_INVALID_STATE;
   }
 
-  if (network_message_set_payload(
-          message, buffer + sizeof(network_message_header_t)) != ESP_OK) {
+  if (app_message_set_payload(message, buffer + sizeof(app_message_header_t)) !=
+      ESP_OK) {
     ESP_LOGE(MULTICAST_READ_TAG, "Failed to set payload");
     return ESP_ERR_INVALID_STATE;
   }
@@ -247,33 +209,33 @@ esp_err_t socket_receive_message(int socket, network_message_handle_t message) {
   return ESP_OK;
 }
 
-esp_err_t socket_send_message(int socket, network_message_handle_t message,
+esp_err_t socket_send_message(int socket, app_message_handle_t message,
                               struct addrinfo *addr_info) {
-  uint8_t buffer[NETWORK_MESSAGE_MAX_LENGTH];
-  int length = sizeof(network_message_header_t) + message->header.length;
+  uint8_t buffer[APP_MESSAGE_MAX_LENGTH];
+  int length = sizeof(app_message_header_t) + message->header.length;
 
-  if (length > NETWORK_MESSAGE_MAX_LENGTH) {
+  if (length > APP_MESSAGE_MAX_LENGTH) {
     ESP_LOGE(MULTICAST_WRITE_TAG, "Message length too long: %d", length);
     return ESP_ERR_INVALID_ARG;
   }
 
   // first copy just the header data
-  memcpy(buffer, &message->header, sizeof(network_message_header_t));
+  memcpy(buffer, &message->header, sizeof(app_message_header_t));
 
   // Then copy the body based on the type.
   // The body comes immediately after the header in the raw buffer.
   switch (message->header.type) {
   case MESSAGE_TYPE_TEXT:
-    memcpy(buffer + sizeof(network_message_header_t), message->text.value,
+    memcpy(buffer + sizeof(app_message_header_t), message->text.value,
            message->header.length);
     break;
   case MESSAGE_TYPE_AUDIO:
-    memcpy(buffer + sizeof(network_message_header_t), message->audio.value,
+    memcpy(buffer + sizeof(app_message_header_t), message->audio.value,
            message->header.length);
     break;
   case MESSAGE_TYPE_HEARTBEAT:
-    memcpy(buffer + sizeof(network_message_header_t),
-           message->heartbeat.from_name, message->header.length);
+    memcpy(buffer + sizeof(app_message_header_t), message->heartbeat.from_name,
+           message->header.length);
     break;
   default:
     ESP_LOGE(MULTICAST_WRITE_TAG, "Unknown message type: %d",
@@ -293,6 +255,7 @@ esp_err_t socket_send_message(int socket, network_message_handle_t message,
 void udp_multicast_read_task(void *pvParameters) {
   network_udp_handle_t network_udp_handle = (network_udp_handle_t)pvParameters;
   fd_set rfds;
+  app_message_handle_t message_incoming = NULL;
 
   while (true) {
     xEventGroupWaitBits(network_udp_handle->events->group_handle,
@@ -329,106 +292,52 @@ void udp_multicast_read_task(void *pvParameters) {
       continue;
     }
 
-    // ----------------↓ TMP CODE ↓----------------
-    network_message_handle_t incoming_message;
-    if (network_message_init(&incoming_message, MESSAGE_TYPE_UNKNOWN,
-                             network_udp_handle->device_info->mac_address,
-                             NULL) != ESP_OK) {
+    // TODO: If we can remove this usage of `device_info` then we don't need to
+    // depend on `device_info` at all
+    if (app_message_init(&message_incoming, MESSAGE_TYPE_UNKNOWN,
+                         network_udp_handle->device_info->mac_address,
+                         NULL) != ESP_OK) {
       ESP_LOGE(MULTICAST_READ_TAG, "Failed to initialize message");
+      message_incoming = NULL;
       continue;
     }
-    // ----------------↑ TMP CODE ↑----------------
 
-    if (socket_receive_message(network_udp_handle->socket, incoming_message) !=
+    if (socket_receive_message(network_udp_handle->socket, message_incoming) !=
         ESP_OK) {
       ESP_LOGE(MULTICAST_READ_TAG, "Failed to receive message");
-      network_message_free(incoming_message);
+      app_message_free(message_incoming);
+      message_incoming = NULL;
       continue;
     }
 
-    // ----------------↓ TMP CODE ↓----------------
-    ESP_LOGI(
+    ESP_LOGD(
         MULTICAST_READ_TAG, "UUID: %02X:%02X:%02X:%02X:%02X:%02X:%02X:%02X",
-        incoming_message->header.uuid[0], incoming_message->header.uuid[1],
-        incoming_message->header.uuid[2], incoming_message->header.uuid[3],
-        incoming_message->header.uuid[4], incoming_message->header.uuid[5],
-        incoming_message->header.uuid[6], incoming_message->header.uuid[7]);
-    ESP_LOGI(MULTICAST_READ_TAG,
+        message_incoming->header.uuid[0], message_incoming->header.uuid[1],
+        message_incoming->header.uuid[2], message_incoming->header.uuid[3],
+        message_incoming->header.uuid[4], message_incoming->header.uuid[5],
+        message_incoming->header.uuid[6], message_incoming->header.uuid[7]);
+    ESP_LOGD(MULTICAST_READ_TAG,
              "FROM MAC address: %02X:%02X:%02X:%02X:%02X:%02X",
-             incoming_message->header.from_mac_address[0],
-             incoming_message->header.from_mac_address[1],
-             incoming_message->header.from_mac_address[2],
-             incoming_message->header.from_mac_address[3],
-             incoming_message->header.from_mac_address[4],
-             incoming_message->header.from_mac_address[5]);
-    ESP_LOGI(MULTICAST_READ_TAG,
-             "TO MAC address: %02X:%02X:%02X:%02X:%02X:%02X",
-             incoming_message->header.to_mac_address[0],
-             incoming_message->header.to_mac_address[1],
-             incoming_message->header.to_mac_address[2],
-             incoming_message->header.to_mac_address[3],
-             incoming_message->header.to_mac_address[4],
-             incoming_message->header.to_mac_address[5]);
+             message_incoming->header.from_mac_address[0],
+             message_incoming->header.from_mac_address[1],
+             message_incoming->header.from_mac_address[2],
+             message_incoming->header.from_mac_address[3],
+             message_incoming->header.from_mac_address[4],
+             message_incoming->header.from_mac_address[5]);
+    ESP_LOGD(MULTICAST_READ_TAG, "Message type: %d\n",
+             message_incoming->header.type);
 
-    network_peer_t *peer = network_udp_handle->peers->head;
-    int peer_count = 0;
-    while (peer != NULL) {
-      peer_count++;
-      peer = peer->next_peer;
-    }
+    xQueueSendToBack(network_udp_handle->queues->message_incoming,
+                     &message_incoming, pdMS_TO_TICKS(1000));
 
-    ESP_LOGI(MULTICAST_READ_TAG, "Peer count: %d", peer_count);
-
-    peer = NULL;
-    peer = network_peers_find(network_udp_handle->peers,
-                              incoming_message->header.from_mac_address, true);
-    if (peer == NULL) {
-      ESP_LOGI(MULTICAST_READ_TAG, "Peer not found");
-    } else {
-      ESP_LOGI(MULTICAST_READ_TAG, "Peer found: %s", peer->name);
-    }
-
-    // check if the `to_mac_address` is the same as the local MAC address
-    // of if it is the broadcast MAC address.
-    if (memcmp(incoming_message->header.to_mac_address,
-               network_udp_handle->device_info->mac_address,
-               sizeof(network_mac_address_t)) != 0 &&
-        memcmp(incoming_message->header.to_mac_address,
-               NETWORK_MESSAGE_BROADCAST_MAC_ADDRESS,
-               sizeof(network_mac_address_t)) != 0) {
-      ESP_LOGI(MULTICAST_READ_TAG, "Message is not for me, skipping");
-      network_message_free(incoming_message);
-      continue;
-    }
-
-    switch (incoming_message->header.type) {
-    case MESSAGE_TYPE_TEXT:
-      ESP_LOGI(MULTICAST_READ_TAG, "%s\n", incoming_message->text.value);
-      break;
-    case MESSAGE_TYPE_AUDIO:
-      ESP_LOGI(MULTICAST_READ_TAG, "Audio message of length %d received\n",
-               incoming_message->header.length);
-      break;
-    case MESSAGE_TYPE_HEARTBEAT:
-      ESP_LOGI(MULTICAST_READ_TAG, "Heartbeat\n");
-      network_peers_add(network_udp_handle->peers,
-                        incoming_message->header.from_mac_address,
-                        incoming_message->heartbeat.from_name);
-      break;
-    default:
-      ESP_LOGE(MULTICAST_READ_TAG, "Unknown message type: %d\n",
-               incoming_message->header.type);
-      break;
-    }
-
-    network_message_free(incoming_message);
-    // ----------------↑ TMP CODE ↑----------------
+    // the queue will now own the message.
+    message_incoming = NULL;
   }
 }
 
 void udp_multicast_write_task(void *pvParameters) {
   network_udp_handle_t network_udp_handle = (network_udp_handle_t)pvParameters;
-  network_message_handle_t outgoing_message;
+  app_message_handle_t message_outgoing;
 
   while (true) {
     xEventGroupWaitBits(network_udp_handle->events->group_handle,
@@ -438,7 +347,7 @@ void udp_multicast_write_task(void *pvParameters) {
     // wait for the message queue to have a message
     BaseType_t xReturned =
         xQueueReceive(network_udp_handle->queues->message_outgoing,
-                      &outgoing_message, portMAX_DELAY);
+                      &message_outgoing, portMAX_DELAY);
 
     // The socket could have been closed while waiting.
     // So we need to check if it's still open.
@@ -448,7 +357,7 @@ void udp_multicast_write_task(void *pvParameters) {
       ESP_LOGD(MULTICAST_WRITE_TAG, "Socket not ready, skipping write");
 
       xReturned = xQueueSendToFront(
-          network_udp_handle->queues->message_outgoing, &outgoing_message, 0);
+          network_udp_handle->queues->message_outgoing, &message_outgoing, 0);
       if (xReturned == pdPASS) {
         // intentionally do not clean up the message here.
         // it was put back in the queue to be cleaned up by the next
@@ -465,41 +374,32 @@ void udp_multicast_write_task(void *pvParameters) {
       goto udp_multicast_write_task_end;
     }
 
-    ESP_LOGI(
+    ESP_LOGD(
         MULTICAST_WRITE_TAG, "UUID: %02X:%02X:%02X:%02X:%02X:%02X:%02X:%02X",
-        outgoing_message->header.uuid[0], outgoing_message->header.uuid[1],
-        outgoing_message->header.uuid[2], outgoing_message->header.uuid[3],
-        outgoing_message->header.uuid[4], outgoing_message->header.uuid[5],
-        outgoing_message->header.uuid[6], outgoing_message->header.uuid[7]);
-    ESP_LOGI(MULTICAST_WRITE_TAG,
+        message_outgoing->header.uuid[0], message_outgoing->header.uuid[1],
+        message_outgoing->header.uuid[2], message_outgoing->header.uuid[3],
+        message_outgoing->header.uuid[4], message_outgoing->header.uuid[5],
+        message_outgoing->header.uuid[6], message_outgoing->header.uuid[7]);
+    ESP_LOGD(MULTICAST_WRITE_TAG,
              "TO MAC address: %02X:%02X:%02X:%02X:%02X:%02X",
-             outgoing_message->header.to_mac_address[0],
-             outgoing_message->header.to_mac_address[1],
-             outgoing_message->header.to_mac_address[2],
-             outgoing_message->header.to_mac_address[3],
-             outgoing_message->header.to_mac_address[4],
-             outgoing_message->header.to_mac_address[5]);
-    ESP_LOGI(MULTICAST_WRITE_TAG, "Message type: %d\n",
-             outgoing_message->header.type);
+             message_outgoing->header.to_mac_address[0],
+             message_outgoing->header.to_mac_address[1],
+             message_outgoing->header.to_mac_address[2],
+             message_outgoing->header.to_mac_address[3],
+             message_outgoing->header.to_mac_address[4],
+             message_outgoing->header.to_mac_address[5]);
+    ESP_LOGD(MULTICAST_WRITE_TAG, "Message type: %d\n",
+             message_outgoing->header.type);
 
-    // if an address wasn't provided, use the local MAC address
-    if (memcmp(outgoing_message->header.from_mac_address,
-               NETWORK_MESSAGE_BROADCAST_MAC_ADDRESS,
-               sizeof(network_mac_address_t)) == 0) {
-      memcpy(outgoing_message->header.from_mac_address,
-             network_udp_handle->device_info->mac_address,
-             sizeof(network_mac_address_t));
-    }
-
-    if (socket_send_message(network_udp_handle->socket, outgoing_message,
+    if (socket_send_message(network_udp_handle->socket, message_outgoing,
                             network_udp_handle->multicast_addr_info) !=
         ESP_OK) {
       ESP_LOGE(MULTICAST_WRITE_TAG, "Failed to send message");
     }
 
   udp_multicast_write_task_end:
-    network_message_free(outgoing_message);
-    outgoing_message = NULL;
+    app_message_free(message_outgoing);
+    message_outgoing = NULL;
   }
 }
 
@@ -509,8 +409,7 @@ void udp_multicast_write_task(void *pvParameters) {
 
 esp_err_t network_udp_init(network_udp_handle_t *network_udp_handle_ptr,
                            network_events_handle_t events_handle,
-                           network_queues_handle_t queues_handle,
-                           network_peers_list_handle_t peers_handle,
+                           app_queues_handle_t queues_handle,
                            app_device_info_handle_t device_info_handle) {
   esp_err_t ret = ESP_OK;
   BaseType_t xReturned;
@@ -522,13 +421,11 @@ esp_err_t network_udp_init(network_udp_handle_t *network_udp_handle_ptr,
                     "Failed to allocate memory for network UDP handle");
 
   network_udp_handle->socket = -1;
-  network_udp_handle->multicast_addr_info =
-      (struct addrinfo *)malloc(sizeof(struct addrinfo));
+  network_udp_handle->multicast_addr_info = NULL;
   network_udp_handle->ip_info =
       (esp_netif_ip_info_t *)malloc(sizeof(esp_netif_ip_info_t));
   network_udp_handle->events = events_handle;
   network_udp_handle->queues = queues_handle;
-  network_udp_handle->peers = peers_handle;
   network_udp_handle->device_info = device_info_handle;
 
   xReturned =
@@ -581,28 +478,10 @@ esp_err_t network_udp_init(network_udp_handle_t *network_udp_handle_ptr,
     goto network_udp_init_error;
   }
 
-  xReturned =
-      xTaskCreate(network_udp_heartbeat_task, UDP_HEARTBEAT_TAG,
-                  APP_STATE_TASK_STACK_DEPTH_UDP_HEARTBEAT, network_udp_handle,
-                  NETWORK_UDP_TASK_PRIORITY_UDP_HEARTBEAT,
-                  &network_udp_handle->tasks.udp_heartbeat);
-
-  if (xReturned != pdPASS) {
-    ESP_LOGE(BASE_TAG, "Failed to create UDP heartbeat task");
-    ret = ESP_ERR_INVALID_STATE;
-    goto network_udp_init_error;
-  }
-  if (network_udp_handle->tasks.udp_heartbeat == NULL) {
-    ESP_LOGE(BASE_TAG, "Failed to create UDP heartbeat task");
-    ret = ESP_ERR_NO_MEM;
-    goto network_udp_init_error;
-  }
-
   *network_udp_handle_ptr = network_udp_handle;
 
   return ESP_OK;
 
 network_udp_init_error:
-  free(network_udp_handle);
   return ret;
 }

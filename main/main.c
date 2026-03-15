@@ -5,10 +5,11 @@
 #include "esp_log.h"
 
 #include "application/device_info.h"
+#include "application/message_handler.h"
+#include "application/peers.h"
+#include "application/queues.h"
 #include "io/inputs.h"
 #include "network/events.h"
-#include "network/peers.h"
-#include "network/queues.h"
 #include "network/udp.h"
 #include "network/wifi.h"
 #include "storage/nvs.h"
@@ -20,10 +21,11 @@ static char *TAG = "APP_MAIN";
 static app_device_info_handle_t device_info_handle;
 static io_inputs_handle_t io_inputs_handle;
 static network_events_handle_t network_events_handle;
-static network_peers_list_handle_t network_peers_list_handle;
-static network_queues_handle_t network_queues_handle;
+static app_peers_handle_t app_peers_handle;
+static app_queues_handle_t app_queues_handle;
 static network_udp_handle_t network_udp_handle;
 static network_wifi_handle_t network_wifi_handle;
+static app_message_handler_handle_t app_message_handler_handle;
 
 esp_err_t init_app() {
   esp_err_t ret = ESP_OK;
@@ -41,18 +43,11 @@ esp_err_t init_app() {
                     init_app_cleanup, TAG,
                     "Failed to initialize network events");
 
-  ESP_GOTO_ON_ERROR(network_peers_init(&network_peers_list_handle),
-                    init_app_cleanup, TAG,
-                    "Failed to initialize network peers");
-
-  ESP_GOTO_ON_ERROR(network_queues_init(&network_queues_handle),
-                    init_app_cleanup, TAG,
+  ESP_GOTO_ON_ERROR(app_queues_init(&app_queues_handle), init_app_cleanup, TAG,
                     "Failed to initialize network queues");
 
   ESP_GOTO_ON_ERROR(network_udp_init(&network_udp_handle, network_events_handle,
-                                     network_queues_handle,
-                                     network_peers_list_handle,
-                                     device_info_handle),
+                                     app_queues_handle, device_info_handle),
                     init_app_cleanup, TAG, "Failed to initialize network UDP");
 
   ESP_GOTO_ON_ERROR(network_wifi_init(&network_wifi_handle,
@@ -60,8 +55,17 @@ esp_err_t init_app() {
                                       network_udp_handle),
                     init_app_cleanup, TAG, "Failed to initialize network WiFi");
 
+  ESP_GOTO_ON_ERROR(
+      app_peers_init(&app_peers_handle, device_info_handle, app_queues_handle),
+      init_app_cleanup, TAG, "Failed to initialize network peers");
+
+  ESP_GOTO_ON_ERROR(
+      app_message_handler_init(&app_message_handler_handle, app_peers_handle,
+                               app_queues_handle, device_info_handle),
+      init_app_cleanup, TAG, "Failed to initialize app message handler");
+
   ESP_GOTO_ON_ERROR(io_inputs_init(&io_inputs_handle, TALK_BTN_PIN,
-                                   device_info_handle, network_queues_handle),
+                                   device_info_handle, app_queues_handle),
                     init_app_cleanup, TAG, "Failed to initialize IO inputs");
 
   ESP_LOGI(TAG, "Device name: %s", device_info_handle->name);

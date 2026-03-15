@@ -1,7 +1,7 @@
 idf_component_register(
-  SRCS "peers.c" "udp.c" "wifi.c" "messages.c" "events.c" "queues.c"
+  SRCS "events.c" "udp.c" "wifi.c"
   INCLUDE_DIRS "include"
   REQUIRES "application"
-  PRIV_REQUIRES "esp_wifi" "esp_event" "lwip" "esp_timer"
+  PRIV_REQUIRES "esp_wifi" "esp_event" "lwip"
   REQUIRED_IDF_TARGETS esp32
 )

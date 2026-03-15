@@ -153,6 +153,5 @@ esp_err_t network_wifi_init(network_wifi_handle_t *wifi_handle_ptr,
   return ESP_OK;
 
 network_wifi_init_error:
-  free(wifi_handle);
   return ret;
 }
