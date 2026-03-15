@@ -39,4 +39,3 @@ esp_err_t network_udp_init(network_udp_handle_t *network_udp_handle_ptr,
                            network_events_handle_t events_handle,
                            app_queues_handle_t queues_handle,
                            app_device_info_handle_t device_info_handle);
-void network_udp_socket_close(network_udp_handle_t network_udp_handle);

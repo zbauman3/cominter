@@ -154,8 +154,8 @@ esp_err_t app_message_set_payload(app_message_handle_t message, void *value) {
       return ESP_ERR_NO_MEM;
     }
 
-    // strcpy will copy the null terminator
-    strcpy(message->text.value, (char *)value);
+    // `message->header.length` accounts for the null terminator
+    memcpy(message->text.value, (char *)value, message->header.length);
     break;
   case MESSAGE_TYPE_AUDIO:
     free(message->audio.value);
@@ -175,7 +175,7 @@ esp_err_t app_message_set_payload(app_message_handle_t message, void *value) {
       return ESP_ERR_NO_MEM;
     }
 
-    strcpy(message->heartbeat.from_name, (char *)value);
+    memcpy(message->heartbeat.from_name, (char *)value, message->header.length);
     break;
   default:
     ESP_LOGE(BASE_TAG, "Unknown message type: %d", message->header.type);

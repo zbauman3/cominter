@@ -77,6 +77,9 @@ esp_err_t app_peers_init(app_peers_handle_t *peers_handle_ptr,
   app_peers_handle->queues = queues_handle;
   app_peers_handle->list.head = NULL;
   app_peers_handle->list.mutex = xSemaphoreCreateMutex();
+  if (app_peers_handle->list.mutex == NULL) {
+    return ESP_ERR_NO_MEM;
+  }
 
   app_peers_handle->tasks.heartbeat = NULL;
   if (xTaskCreate(app_peers_heartbeat_task, PEERS_TASK_TAG,
@@ -178,12 +181,11 @@ esp_err_t app_peers_prune(app_peers_handle_t peers_handle) {
 
   app_peer_handle_t current_peer = peers_handle->list.head;
   app_peer_handle_t previous_peer = NULL;
-
-  int32_t prune_threshold_ms =
-      (int32_t)(esp_timer_get_time() / 1000) - APP_PEERS_PRUNE_INTERVAL_MS;
+  uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
 
   while (current_peer != NULL) {
-    if (current_peer->last_heartbeat_ms < prune_threshold_ms) {
+    uint32_t elapsed = now_ms - current_peer->last_heartbeat_ms;
+    if (elapsed > APP_PEERS_PRUNE_INTERVAL_MS) {
       if (previous_peer == NULL) {
         peers_handle->list.head = current_peer->next_peer;
       } else {

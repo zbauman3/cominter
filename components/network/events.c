@@ -13,7 +13,8 @@ esp_err_t network_events_init(network_events_handle_t *handle_ptr) {
   }
 
   xEventGroupClearBits(events_handle->group_handle,
-                       NETWORK_EVENT_GOT_NEW_IP | NETWORK_EVENT_SOCKET_READY);
+                       NETWORK_EVENT_GOT_NEW_IP | NETWORK_EVENT_SOCKET_READY |
+                           NETWORK_EVENT_LOST_IP);
 
   *handle_ptr = events_handle;
 

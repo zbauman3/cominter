@@ -24,7 +24,7 @@ esp_err_t udp_socket_create(network_udp_handle_t network_udp_handle) {
   if (network_udp_handle->socket >= 0) {
     ESP_LOGW(SOCKET_TAG,
              "Multicast socket already created. Returning existing socket.");
-    return network_udp_handle->socket;
+    return ESP_OK;
   }
 
   struct sockaddr_in saddr = {0};
@@ -120,17 +120,38 @@ udp_multicast_socket_create_end:
   return ret;
 }
 
+void network_udp_socket_close(network_udp_handle_t network_udp_handle) {
+  if (network_udp_handle->socket >= 0) {
+    shutdown(network_udp_handle->socket, SHUT_RDWR);
+    close(network_udp_handle->socket);
+  }
+  // no need to clean `multicast_addr_info`. It will be cleaned up by the next
+  // socket creation
+  xEventGroupClearBits(network_udp_handle->events->group_handle,
+                       NETWORK_EVENT_SOCKET_READY);
+  network_udp_handle->socket = -1;
+}
+
 void udp_socket_task(void *pvParameters) {
   network_udp_handle_t network_udp_handle = (network_udp_handle_t)pvParameters;
   esp_err_t create_status;
 
   while (true) {
-    xEventGroupWaitBits(network_udp_handle->events->group_handle,
-                        NETWORK_EVENT_GOT_NEW_IP, pdTRUE, pdTRUE,
-                        portMAX_DELAY);
-    ESP_LOGD(SOCKET_TAG, "Got new IP, creating socket...");
+    EventBits_t bits_waiting =
+        xEventGroupWaitBits(network_udp_handle->events->group_handle,
+                            NETWORK_EVENT_GOT_NEW_IP | NETWORK_EVENT_LOST_IP,
+                            pdTRUE, pdFALSE, portMAX_DELAY);
 
-    network_udp_socket_close(network_udp_handle);
+    if (bits_waiting & NETWORK_EVENT_LOST_IP) {
+      ESP_LOGD(SOCKET_TAG, "Lost IP, closing socket...");
+      network_udp_socket_close(network_udp_handle);
+    }
+
+    if (!(bits_waiting & NETWORK_EVENT_GOT_NEW_IP)) {
+      continue;
+    }
+
+    ESP_LOGD(SOCKET_TAG, "Got new IP, creating socket...");
 
     while (network_udp_handle->socket < 0) {
       create_status = ESP_OK;
@@ -148,20 +169,6 @@ void udp_socket_task(void *pvParameters) {
       }
     }
   }
-}
-
-void network_udp_socket_close(network_udp_handle_t network_udp_handle) {
-  if (network_udp_handle->socket >= 0) {
-    shutdown(network_udp_handle->socket, SHUT_RDWR);
-    close(network_udp_handle->socket);
-  }
-  if (network_udp_handle->multicast_addr_info != NULL) {
-    freeaddrinfo(network_udp_handle->multicast_addr_info);
-    network_udp_handle->multicast_addr_info = NULL;
-  }
-  xEventGroupClearBits(network_udp_handle->events->group_handle,
-                       NETWORK_EVENT_SOCKET_READY);
-  network_udp_handle->socket = -1;
 }
 
 // // ----------------
@@ -327,8 +334,13 @@ void udp_multicast_read_task(void *pvParameters) {
     ESP_LOGD(MULTICAST_READ_TAG, "Message type: %d\n",
              message_incoming->header.type);
 
-    xQueueSendToBack(network_udp_handle->queues->message_incoming,
-                     &message_incoming, pdMS_TO_TICKS(1000));
+    if (xQueueSendToBack(network_udp_handle->queues->message_incoming,
+                         &message_incoming, pdMS_TO_TICKS(5)) != pdPASS) {
+      ESP_LOGE(MULTICAST_READ_TAG, "Failed to send message to queue");
+      app_message_free(message_incoming);
+      message_incoming = NULL;
+      continue;
+    }
 
     // the queue will now own the message.
     message_incoming = NULL;
@@ -422,11 +434,15 @@ esp_err_t network_udp_init(network_udp_handle_t *network_udp_handle_ptr,
 
   network_udp_handle->socket = -1;
   network_udp_handle->multicast_addr_info = NULL;
-  network_udp_handle->ip_info =
-      (esp_netif_ip_info_t *)malloc(sizeof(esp_netif_ip_info_t));
   network_udp_handle->events = events_handle;
   network_udp_handle->queues = queues_handle;
   network_udp_handle->device_info = device_info_handle;
+
+  network_udp_handle->ip_info =
+      (esp_netif_ip_info_t *)malloc(sizeof(esp_netif_ip_info_t));
+  ESP_GOTO_ON_FALSE(network_udp_handle->ip_info != NULL, ESP_ERR_NO_MEM,
+                    network_udp_init_error, BASE_TAG,
+                    "Failed to allocate memory for network UDP IP info");
 
   xReturned =
       xTaskCreate(udp_multicast_write_task, MULTICAST_WRITE_TAG,

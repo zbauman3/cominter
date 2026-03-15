@@ -22,7 +22,7 @@ esp_err_t storage_nvs_init() {
 
 esp_err_t storage_nvs_get_name(char **name_ptr) {
   esp_err_t ret = ESP_OK;
-  nvs_handle_t nvs_handle;
+  nvs_handle_t nvs_handle = 0;
 
   ESP_GOTO_ON_ERROR(nvs_open_from_partition("nvs", NVS_DEVICE_INFO_NAMESPACE,
                                             NVS_READONLY, &nvs_handle),
@@ -51,7 +51,9 @@ esp_err_t storage_nvs_get_name(char **name_ptr) {
       esp_err_to_name(ret));
 
 storage_nvs_get_name_cleanup:
-  nvs_close(nvs_handle);
+  if (nvs_handle != 0) {
+    nvs_close(nvs_handle);
+  }
 
   return ret;
 }

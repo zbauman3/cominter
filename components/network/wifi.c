@@ -31,8 +31,9 @@ static void event_handler(void *arg, esp_event_base_t event_base,
     }
     case IP_EVENT_STA_LOST_IP: {
       ESP_LOGD(TAG, "EVENT - IP_EVENT_STA_LOST_IP");
-      // Close the socket, it will be recreated when we get a new IP
-      network_udp_socket_close(wifi_handle->udp);
+      // signal that we've lost our IP so that the socket can be closed
+      xEventGroupSetBits(wifi_handle->events->group_handle,
+                         NETWORK_EVENT_LOST_IP);
       wifi_handle->udp->ip_info->ip = (esp_ip4_addr_t){0};
       wifi_handle->udp->ip_info->netmask = (esp_ip4_addr_t){0};
       wifi_handle->udp->ip_info->gw = (esp_ip4_addr_t){0};
