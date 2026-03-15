@@ -2,7 +2,6 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
-#include <string.h>
 
 #include "storage/nvs.h"
 

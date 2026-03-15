@@ -6,7 +6,6 @@
 #include "esp_log.h"
 #include "lwip/sockets.h"
 #include <lwip/netdb.h>
-#include <sys/param.h>
 
 #include "application/messages.h"
 #include "network/udp.h"

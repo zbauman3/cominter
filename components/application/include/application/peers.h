@@ -48,9 +48,6 @@ esp_err_t app_peers_init(app_peers_handle_t *peers_handle_ptr,
 
 esp_err_t app_peers_add(app_peers_handle_t peers_handle,
                         network_mac_address_t mac_address, char *name);
-esp_err_t app_peers_remove(app_peers_handle_t peers_handle,
-                           network_mac_address_t mac_address, bool should_lock);
-esp_err_t app_peers_prune(app_peers_handle_t peers_handle);
 void app_peers_find(app_peers_handle_t peers_handle,
                     app_peer_handle_t *peer_handle_ptr,
                     network_mac_address_t mac_address, bool should_lock);
