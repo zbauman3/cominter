@@ -6,7 +6,7 @@
 
 #include "application/device_info.h"
 #include "application/queues.h"
-#include "network/types.h"
+#include "protocols/mac.h"
 
 #define APP_PEERS_TASK_PRIORITY_HEARTBEAT 3
 #define APP_PEERS_TASK_STACK_DEPTH_HEARTBEAT (1024 * 4)

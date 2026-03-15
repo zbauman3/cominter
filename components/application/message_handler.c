@@ -2,7 +2,7 @@
 #include <string.h>
 
 #include "application/message_handler.h"
-#include "application/messages.h"
+#include "protocols/messages.h"
 
 static const char *MESSAGE_HANDLER_TAG = "APPLICATION:MESSAGE_HANDLER";
 

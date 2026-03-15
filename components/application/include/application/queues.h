@@ -4,7 +4,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 
-#include "application/messages.h"
+#include "protocols/messages.h"
 
 // unknown messages are dropped.
 // audio messages are processed differently.

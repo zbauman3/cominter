@@ -2,7 +2,7 @@
 
 #include "esp_err.h"
 
-#include "network/types.h"
+#include "protocols/mac.h"
 
 typedef struct app_device_info_t {
   char *name;

@@ -2,7 +2,7 @@
 
 #include "esp_err.h"
 
-#include "network/types.h"
+#include "protocols/mac.h"
 
 // Looks like ESP-IDF's socket implementation doesn't support the flag for
 // "Don't Fragment". But either way this is a reasonable default.

@@ -7,8 +7,8 @@
 #include "lwip/sockets.h"
 #include <lwip/netdb.h>
 
-#include "application/messages.h"
 #include "network/udp.h"
+#include "protocols/messages.h"
 
 static const char *BASE_TAG = "NETWORK:UDP";
 static const char *SOCKET_TAG = "NETWORK:UDP:SOCKET";

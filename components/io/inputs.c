@@ -1,8 +1,8 @@
 #include "driver/gpio.h"
 #include "esp_log.h"
 
-#include "application/messages.h"
 #include "io/inputs.h"
+#include "protocols/messages.h"
 
 static const char *BASE_TAG = "IO:INPUTS";
 static const char *TASK_TAG = "IO:INPUTS:TASK";

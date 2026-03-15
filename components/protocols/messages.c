@@ -4,7 +4,7 @@
 #include <assert.h>
 #include <string.h>
 
-#include "application/messages.h"
+#include "protocols/messages.h"
 
 static const char *BASE_TAG = "NETWORK:MESSAGES";
 

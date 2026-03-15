@@ -6,8 +6,8 @@
 #include "freertos/task.h"
 #include <string.h>
 
-#include "application/messages.h"
 #include "application/peers.h"
+#include "protocols/messages.h"
 
 // static const char *BASE_TAG = "APPLICATION:PEERS";
 static const char *PEERS_HB_SEND_TASK_TAG = "APPLICATION:PEERS:HB_SENDTASK";

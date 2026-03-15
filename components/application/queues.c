@@ -1,8 +1,8 @@
 #include "esp_err.h"
 #include "esp_log.h"
 
-#include "application/messages.h"
 #include "application/queues.h"
+#include "protocols/messages.h"
 
 static const char *BASE_TAG = "NETWORK:QUEUES";
 
