@@ -18,7 +18,7 @@
 
 // This is a linked list of peers.
 typedef struct app_peer_t {
-  network_mac_address_t mac_address;
+  protocol_mac_address_t mac_address;
   char *name;
   int32_t last_heartbeat_ms;
   struct app_peer_t *next_peer;
@@ -48,9 +48,9 @@ esp_err_t app_peers_init(app_peers_handle_t *peers_handle_ptr,
                          app_queues_handle_t queues_handle);
 
 esp_err_t app_peers_add(app_peers_handle_t peers_handle,
-                        network_mac_address_t mac_address, char *name);
+                        protocol_mac_address_t mac_address, char *name);
 void app_peers_find(app_peers_handle_t peers_handle,
                     app_peer_handle_t *peer_handle_ptr,
-                    network_mac_address_t mac_address, bool should_lock);
-int app_peers_count(app_peers_handle_t peers_handle);
+                    protocol_mac_address_t mac_address, bool should_lock);
+int32_t app_peers_count(app_peers_handle_t peers_handle);
 void app_peer_free(app_peer_handle_t peer_handle);

@@ -17,7 +17,7 @@ app_device_info_init(app_device_info_handle_t *device_info_handle_ptr) {
   }
 
   device_info_handle->name = NULL;
-  memset(device_info_handle->mac_address, 0, sizeof(network_mac_address_t));
+  memset(device_info_handle->mac_address, 0, sizeof(protocol_mac_address_t));
 
   esp_err_t ret = storage_nvs_get_name(&device_info_handle->name);
   if (ret != ESP_OK) {

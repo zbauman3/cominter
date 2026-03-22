@@ -13,12 +13,12 @@
 #define NETWORK_UDP_TASK_PRIORITY_MULTICAST 5
 
 #define NETWORK_UDP_TASK_STACK_DEPTH_SOCKET                                    \
-  ((1024 * 5) + APP_MESSAGE_MAX_LENGTH)
+  ((1024 * 5) + PROTOCOL_MESSAGE_MAX_LENGTH)
 #define NETWORK_UDP_TASK_STACK_DEPTH_MULTICAST                                 \
-  ((1024 * 7) + APP_MESSAGE_MAX_LENGTH)
+  ((1024 * 7) + PROTOCOL_MESSAGE_MAX_LENGTH)
 
 typedef struct network_udp_t {
-  int socket;
+  int32_t socket;
   struct addrinfo *multicast_addr_info;
   esp_netif_ip_info_t *ip_info;
 

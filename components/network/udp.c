@@ -174,40 +174,41 @@ void udp_socket_task(void *pvParameters) {
 // // Multicast Stuff
 // // ----------------
 
-esp_err_t socket_receive_message(int socket, app_message_handle_t message) {
+esp_err_t socket_receive_message(int32_t socket,
+                                 protocol_message_handle_t message) {
   // increase by 1 to check if the incoming message was longer than the max size
   // so that we can detect invalid messages easily by checking the length.
-  uint8_t buffer[APP_MESSAGE_MAX_LENGTH + 1];
-  int length = 0;
+  uint8_t buffer[PROTOCOL_MESSAGE_MAX_LENGTH + 1];
+  int32_t length = 0;
 
-  length = recv(socket, buffer, APP_MESSAGE_MAX_LENGTH + 1, 0);
+  length = recv(socket, buffer, PROTOCOL_MESSAGE_MAX_LENGTH + 1, 0);
 
   if (length < 0) {
     ESP_LOGE(MULTICAST_READ_TAG, "multicast recvfrom failed: errno %d", errno);
     return ESP_ERR_INVALID_STATE;
   }
 
-  if (length < sizeof(app_message_header_t)) {
+  if (length < sizeof(protocol_message_header_t)) {
     ESP_LOGE(MULTICAST_READ_TAG, "Message length too short: %d", length);
     return ESP_ERR_INVALID_STATE;
   }
 
-  if (length > APP_MESSAGE_MAX_LENGTH) {
+  if (length > PROTOCOL_MESSAGE_MAX_LENGTH) {
     ESP_LOGE(MULTICAST_READ_TAG, "Message length too long: %d", length);
     return ESP_ERR_INVALID_STATE;
   }
 
-  memcpy(&message->header, buffer, sizeof(app_message_header_t));
+  memcpy(&message->header, buffer, sizeof(protocol_message_header_t));
 
-  int payload_len = length - sizeof(app_message_header_t);
+  int32_t payload_len = length - sizeof(protocol_message_header_t);
   if (payload_len != message->header.length) {
     ESP_LOGE(MULTICAST_READ_TAG, "Payload length mismatch: expected %d, got %d",
              message->header.length, payload_len);
     return ESP_ERR_INVALID_STATE;
   }
 
-  if (app_message_set_payload(message, buffer + sizeof(app_message_header_t)) !=
-      ESP_OK) {
+  if (protocol_message_set_payload(
+          message, buffer + sizeof(protocol_message_header_t)) != ESP_OK) {
     ESP_LOGE(MULTICAST_READ_TAG, "Failed to set payload");
     return ESP_ERR_INVALID_STATE;
   }
@@ -215,33 +216,33 @@ esp_err_t socket_receive_message(int socket, app_message_handle_t message) {
   return ESP_OK;
 }
 
-esp_err_t socket_send_message(int socket, app_message_handle_t message,
+esp_err_t socket_send_message(int32_t socket, protocol_message_handle_t message,
                               struct addrinfo *addr_info) {
-  uint8_t buffer[APP_MESSAGE_MAX_LENGTH];
-  int length = sizeof(app_message_header_t) + message->header.length;
+  uint8_t buffer[PROTOCOL_MESSAGE_MAX_LENGTH];
+  int32_t length = sizeof(protocol_message_header_t) + message->header.length;
 
-  if (length > APP_MESSAGE_MAX_LENGTH) {
+  if (length > PROTOCOL_MESSAGE_MAX_LENGTH) {
     ESP_LOGE(MULTICAST_WRITE_TAG, "Message length too long: %d", length);
     return ESP_ERR_INVALID_ARG;
   }
 
   // first copy just the header data
-  memcpy(buffer, &message->header, sizeof(app_message_header_t));
+  memcpy(buffer, &message->header, sizeof(protocol_message_header_t));
 
   // Then copy the body based on the type.
   // The body comes immediately after the header in the raw buffer.
   switch (message->header.type) {
   case MESSAGE_TYPE_TEXT:
-    memcpy(buffer + sizeof(app_message_header_t), message->text.value,
+    memcpy(buffer + sizeof(protocol_message_header_t), message->text.value,
            message->header.length);
     break;
   case MESSAGE_TYPE_AUDIO:
-    memcpy(buffer + sizeof(app_message_header_t), message->audio.value,
+    memcpy(buffer + sizeof(protocol_message_header_t), message->audio.value,
            message->header.length);
     break;
   case MESSAGE_TYPE_HEARTBEAT:
-    memcpy(buffer + sizeof(app_message_header_t), message->heartbeat.from_name,
-           message->header.length);
+    memcpy(buffer + sizeof(protocol_message_header_t),
+           message->heartbeat.from_name, message->header.length);
     break;
   default:
     ESP_LOGE(MULTICAST_WRITE_TAG, "Unknown message type: %d",
@@ -261,7 +262,7 @@ esp_err_t socket_send_message(int socket, app_message_handle_t message,
 void udp_multicast_read_task(void *pvParameters) {
   network_udp_handle_t network_udp_handle = (network_udp_handle_t)pvParameters;
   fd_set rfds;
-  app_message_handle_t message_incoming = NULL;
+  protocol_message_handle_t message_incoming = NULL;
 
   while (true) {
     xEventGroupWaitBits(network_udp_handle->events->group_handle,
@@ -271,7 +272,7 @@ void udp_multicast_read_task(void *pvParameters) {
     FD_ZERO(&rfds);
     FD_SET(network_udp_handle->socket, &rfds);
     // no timeout, so we'll block forever until data is received.
-    int s = select(network_udp_handle->socket + 1, &rfds, NULL, NULL, NULL);
+    int32_t s = select(network_udp_handle->socket + 1, &rfds, NULL, NULL, NULL);
 
     // The socket could have been closed while waiting.
     // So we need to check if it's still open.
@@ -300,9 +301,9 @@ void udp_multicast_read_task(void *pvParameters) {
 
     // TODO: If we can remove this usage of `device_info` then we don't need to
     // depend on `device_info` at all
-    if (app_message_init(&message_incoming, MESSAGE_TYPE_UNKNOWN, 0,
-                         network_udp_handle->device_info->mac_address,
-                         NULL) != ESP_OK) {
+    if (protocol_message_init(&message_incoming, MESSAGE_TYPE_UNKNOWN, 0,
+                              network_udp_handle->device_info->mac_address,
+                              NULL) != ESP_OK) {
       ESP_LOGE(MULTICAST_READ_TAG, "Failed to initialize message");
       message_incoming = NULL;
       continue;
@@ -311,7 +312,7 @@ void udp_multicast_read_task(void *pvParameters) {
     if (socket_receive_message(network_udp_handle->socket, message_incoming) !=
         ESP_OK) {
       ESP_LOGE(MULTICAST_READ_TAG, "Failed to receive message");
-      app_message_free(message_incoming);
+      protocol_message_free(message_incoming);
       message_incoming = NULL;
       continue;
     }
@@ -338,7 +339,7 @@ void udp_multicast_read_task(void *pvParameters) {
                                         pdMS_TO_TICKS(5)) != ESP_OK) {
       ESP_LOGE(MULTICAST_READ_TAG,
                "Failed to add message to incoming queue. Dropping message.");
-      app_message_free(message_incoming);
+      protocol_message_free(message_incoming);
       message_incoming = NULL;
     }
   }
@@ -346,7 +347,7 @@ void udp_multicast_read_task(void *pvParameters) {
 
 void udp_multicast_write_task(void *pvParameters) {
   network_udp_handle_t network_udp_handle = (network_udp_handle_t)pvParameters;
-  app_message_handle_t outgoing_message;
+  protocol_message_handle_t outgoing_message;
 
   while (true) {
     // wait for the message queue to have a message
@@ -407,7 +408,7 @@ void udp_multicast_write_task(void *pvParameters) {
     }
 
   udp_multicast_write_task_end:
-    app_message_free(outgoing_message);
+    protocol_message_free(outgoing_message);
     outgoing_message = NULL;
   }
 }

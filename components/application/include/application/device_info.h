@@ -7,7 +7,7 @@
 typedef struct app_device_info_t {
   char *name;
   // this is the MAC address of the device
-  network_mac_address_t mac_address;
+  protocol_mac_address_t mac_address;
 } app_device_info_t;
 
 typedef app_device_info_t *app_device_info_handle_t;

@@ -16,7 +16,7 @@ void IRAM_ATTR io_inputs_talk_btn_isr(void *arg) {
 void io_inputs_task(void *pvParameters) {
   io_inputs_handle_t io_inputs_handle = (io_inputs_handle_t)pvParameters;
   uint32_t io_num;
-  app_message_handle_t outgoing_message;
+  protocol_message_handle_t outgoing_message;
 
   while (1) {
     xQueueReceive(io_inputs_handle->queues.inputs_queue, &io_num,
@@ -27,9 +27,9 @@ void io_inputs_task(void *pvParameters) {
 
     ESP_LOGI(TASK_TAG, "Talk button pressed");
 
-    if (app_message_init_text(&outgoing_message, "Button pressed!",
-                              io_inputs_handle->device_info->mac_address,
-                              NULL) != ESP_OK) {
+    if (protocol_message_init_text(&outgoing_message, "Button pressed!",
+                                   io_inputs_handle->device_info->mac_address,
+                                   NULL) != ESP_OK) {
       ESP_LOGE(TASK_TAG, "Failed to initialize message");
       continue;
     }
@@ -38,14 +38,14 @@ void io_inputs_task(void *pvParameters) {
                                         &outgoing_message, pdMS_TO_TICKS(500),
                                         false) != ESP_OK) {
       ESP_LOGE(TASK_TAG, "Failed to send button message to queue");
-      app_message_free(outgoing_message);
+      protocol_message_free(outgoing_message);
       outgoing_message = NULL;
     }
   }
 }
 
 esp_err_t io_inputs_init(io_inputs_handle_t *io_inputs_handle_ptr,
-                         int talk_btn_pin,
+                         int32_t talk_btn_pin,
                          app_device_info_handle_t device_info_handle,
                          app_queues_handle_t app_queues_handle) {
   io_inputs_handle_t io_inputs_handle =

@@ -25,7 +25,7 @@ static app_peers_handle_t app_peers_handle;
 static app_queues_handle_t app_queues_handle;
 static network_udp_handle_t network_udp_handle;
 static network_wifi_handle_t network_wifi_handle;
-static app_message_handler_handle_t app_message_handler_handle;
+static protocol_message_handler_handle_t protocol_message_handler_handle;
 
 esp_err_t init_app() {
   esp_err_t ret = ESP_OK;
@@ -59,10 +59,11 @@ esp_err_t init_app() {
       app_peers_init(&app_peers_handle, device_info_handle, app_queues_handle),
       init_app_cleanup, TAG, "Failed to initialize network peers");
 
-  ESP_GOTO_ON_ERROR(
-      app_message_handler_init(&app_message_handler_handle, app_peers_handle,
-                               app_queues_handle, device_info_handle),
-      init_app_cleanup, TAG, "Failed to initialize app message handler");
+  ESP_GOTO_ON_ERROR(protocol_message_handler_init(
+                        &protocol_message_handler_handle, app_peers_handle,
+                        app_queues_handle, device_info_handle),
+                    init_app_cleanup, TAG,
+                    "Failed to initialize app message handler");
 
   ESP_GOTO_ON_ERROR(io_inputs_init(&io_inputs_handle, TALK_BTN_PIN,
                                    device_info_handle, app_queues_handle),

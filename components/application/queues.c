@@ -13,19 +13,20 @@ esp_err_t app_queues_init(app_queues_handle_t *handle_ptr) {
     return ESP_ERR_NO_MEM;
   }
 
-  app_queues_handle->outgoing = xQueueCreate(10, sizeof(app_message_handle_t));
+  app_queues_handle->outgoing =
+      xQueueCreate(10, sizeof(protocol_message_handle_t));
   if (app_queues_handle->outgoing == NULL) {
     return ESP_ERR_NO_MEM;
   }
 
   app_queues_handle->incoming_heartbeat =
-      xQueueCreate(10, sizeof(app_message_handle_t));
+      xQueueCreate(10, sizeof(protocol_message_handle_t));
   if (app_queues_handle->incoming_heartbeat == NULL) {
     return ESP_ERR_NO_MEM;
   }
 
   app_queues_handle->incoming_text =
-      xQueueCreate(10, sizeof(app_message_handle_t));
+      xQueueCreate(10, sizeof(protocol_message_handle_t));
   if (app_queues_handle->incoming_text == NULL) {
     return ESP_ERR_NO_MEM;
   }
@@ -38,9 +39,10 @@ esp_err_t app_queues_init(app_queues_handle_t *handle_ptr) {
 // If successful, the caller will own the message and is responsible for freeing
 // it. Otherwise, the caller's pointer will be set to NULL and they can choose
 // to retry or not.
-esp_err_t app_queues_receive_outgoing_message(app_queues_handle_t queues_handle,
-                                              app_message_handle_t *message_ptr,
-                                              TickType_t ticks_to_wait) {
+esp_err_t
+app_queues_receive_outgoing_message(app_queues_handle_t queues_handle,
+                                    protocol_message_handle_t *message_ptr,
+                                    TickType_t ticks_to_wait) {
   BaseType_t xReturned =
       xQueueReceive(queues_handle->outgoing, message_ptr, ticks_to_wait);
   if (xReturned != pdPASS) {
@@ -54,10 +56,9 @@ esp_err_t app_queues_receive_outgoing_message(app_queues_handle_t queues_handle,
 // If successful, the queue will own the message and the caller's pointer will
 // be set to NULL. Otherwise, the caller's pointer will not be modified and they
 // can choose to retry or not.
-esp_err_t app_queues_add_outgoing_message(app_queues_handle_t queues_handle,
-                                          app_message_handle_t *message_ptr,
-                                          TickType_t ticks_to_wait,
-                                          bool should_send_to_front) {
+esp_err_t app_queues_add_outgoing_message(
+    app_queues_handle_t queues_handle, protocol_message_handle_t *message_ptr,
+    TickType_t ticks_to_wait, bool should_send_to_front) {
   BaseType_t xReturned = pdPASS;
   if (should_send_to_front) {
     xReturned =
@@ -78,10 +79,9 @@ esp_err_t app_queues_add_outgoing_message(app_queues_handle_t queues_handle,
 // If successful, the caller will own the message and is responsible for freeing
 // it. Otherwise, the caller's pointer will be set to NULL and they can choose
 // to retry or not.
-esp_err_t app_queues_receive_incoming_message(app_queues_handle_t queues_handle,
-                                              app_message_handle_t *message_ptr,
-                                              app_message_type_t type,
-                                              TickType_t ticks_to_wait) {
+esp_err_t app_queues_receive_incoming_message(
+    app_queues_handle_t queues_handle, protocol_message_handle_t *message_ptr,
+    protocol_message_type_t type, TickType_t ticks_to_wait) {
   QueueHandle_t queue_to_receive_from = NULL;
   switch (type) {
   case MESSAGE_TYPE_HEARTBEAT:
@@ -109,9 +109,10 @@ esp_err_t app_queues_receive_incoming_message(app_queues_handle_t queues_handle,
 // If successful, the queue will own the message and the caller's pointer will
 // be set to NULL. Otherwise, the caller's pointer will not be modified and they
 // can choose to retry or not.
-esp_err_t app_queues_add_incoming_message(app_queues_handle_t queues_handle,
-                                          app_message_handle_t *message_ptr,
-                                          TickType_t ticks_to_wait) {
+esp_err_t
+app_queues_add_incoming_message(app_queues_handle_t queues_handle,
+                                protocol_message_handle_t *message_ptr,
+                                TickType_t ticks_to_wait) {
   BaseType_t xReturned = pdPASS;
   switch ((*message_ptr)->header.type) {
   case MESSAGE_TYPE_HEARTBEAT:
@@ -126,7 +127,7 @@ esp_err_t app_queues_add_incoming_message(app_queues_handle_t queues_handle,
     xReturned = pdPASS;
     ESP_LOGE(BASE_TAG, "Unsupported message type: %d",
              (*message_ptr)->header.type);
-    app_message_free(*message_ptr);
+    protocol_message_free(*message_ptr);
     break;
   }
 

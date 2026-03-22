@@ -15,7 +15,7 @@ static const char *PEERS_HB_RECEIVE_TASK_TAG =
     "APPLICATION:PEERS:HB_RECEIVETASK";
 
 esp_err_t app_peers_remove(app_peers_handle_t peers_handle,
-                           network_mac_address_t mac_address,
+                           protocol_mac_address_t mac_address,
                            bool should_lock) {
   if (should_lock) {
     xSemaphoreTake(peers_handle->list.mutex, portMAX_DELAY);
@@ -26,7 +26,7 @@ esp_err_t app_peers_remove(app_peers_handle_t peers_handle,
 
   while (current_peer != NULL) {
     if (memcmp(current_peer->mac_address, mac_address,
-               sizeof(network_mac_address_t)) == 0) {
+               sizeof(protocol_mac_address_t)) == 0) {
       if (previous_peer == NULL) {
         peers_handle->list.head = current_peer->next_peer;
       } else {
@@ -87,7 +87,7 @@ esp_err_t app_peers_prune(app_peers_handle_t peers_handle) {
 
 void app_peers_heartbeat_send_task(void *pvParameters) {
   app_peers_handle_t app_peers_handle = (app_peers_handle_t)pvParameters;
-  app_message_handle_t outgoing_message;
+  protocol_message_handle_t outgoing_message;
 
   // when first coming on the network, send 10 heartbeats to make sure we're
   // put into peer lists.
@@ -104,7 +104,7 @@ void app_peers_heartbeat_send_task(void *pvParameters) {
   uint8_t init_heartbeat_count = 10;
 
   while (true) {
-    if (app_message_init_heartbeat(
+    if (protocol_message_init_heartbeat(
             &outgoing_message, app_peers_handle->device_info->name,
             app_peers_handle->device_info->mac_address) != ESP_OK) {
       ESP_LOGE(PEERS_HB_SEND_TASK_TAG, "Failed to initialize message");
@@ -116,7 +116,7 @@ void app_peers_heartbeat_send_task(void *pvParameters) {
             app_peers_handle->queues, &outgoing_message,
             pdMS_TO_TICKS(APP_PEERS_HEARTBEAT_WAIT_MAX_MS), false) != ESP_OK) {
       ESP_LOGE(PEERS_HB_SEND_TASK_TAG, "Failed to send heartbeat to queue");
-      app_message_free(outgoing_message);
+      protocol_message_free(outgoing_message);
       outgoing_message = NULL;
     }
 
@@ -134,7 +134,7 @@ void app_peers_heartbeat_send_task(void *pvParameters) {
 
 void app_peers_heartbeat_receive_task(void *pvParameters) {
   app_peers_handle_t app_peers_handle = (app_peers_handle_t)pvParameters;
-  app_message_handle_t incoming_message = NULL;
+  protocol_message_handle_t incoming_message = NULL;
 
   while (true) {
     if (app_queues_receive_incoming_message(
@@ -155,7 +155,7 @@ void app_peers_heartbeat_receive_task(void *pvParameters) {
     ESP_LOGI(PEERS_HB_RECEIVE_TASK_TAG, "Number of peers: %d\n",
              app_peers_count(app_peers_handle));
 
-    app_message_free(incoming_message);
+    protocol_message_free(incoming_message);
     incoming_message = NULL;
   }
 }
@@ -205,7 +205,7 @@ esp_err_t app_peers_init(app_peers_handle_t *peers_handle_ptr,
 }
 
 esp_err_t app_peers_add(app_peers_handle_t peers_handle,
-                        network_mac_address_t mac_address, char *name) {
+                        protocol_mac_address_t mac_address, char *name) {
   xSemaphoreTake(peers_handle->list.mutex, portMAX_DELAY);
 
   esp_err_t ret = ESP_OK;
@@ -235,7 +235,7 @@ esp_err_t app_peers_add(app_peers_handle_t peers_handle,
     goto app_peers_add_end;
   }
 
-  memcpy(new_peer->mac_address, mac_address, sizeof(network_mac_address_t));
+  memcpy(new_peer->mac_address, mac_address, sizeof(protocol_mac_address_t));
   strcpy(new_peer->name, name);
   new_peer->last_heartbeat_ms = (int32_t)(esp_timer_get_time() / 1000);
   new_peer->next_peer = peers_handle->list.head;
@@ -248,7 +248,7 @@ app_peers_add_end:
 
 void app_peers_find(app_peers_handle_t peers_handle,
                     app_peer_handle_t *peer_handle_ptr,
-                    network_mac_address_t mac_address, bool should_lock) {
+                    protocol_mac_address_t mac_address, bool should_lock) {
   if (should_lock) {
     xSemaphoreTake(peers_handle->list.mutex, portMAX_DELAY);
   }
@@ -258,7 +258,7 @@ void app_peers_find(app_peers_handle_t peers_handle,
 
   while (current_peer != NULL) {
     if (memcmp(current_peer->mac_address, mac_address,
-               sizeof(network_mac_address_t)) == 0) {
+               sizeof(protocol_mac_address_t)) == 0) {
       // found the peer. Copy it.
       *peer_handle_ptr = (app_peer_handle_t)malloc(sizeof(app_peer_t));
       if (*peer_handle_ptr == NULL) {
@@ -293,10 +293,10 @@ void app_peers_find(app_peers_handle_t peers_handle,
   return;
 }
 
-int app_peers_count(app_peers_handle_t peers_handle) {
+int32_t app_peers_count(app_peers_handle_t peers_handle) {
   xSemaphoreTake(peers_handle->list.mutex, portMAX_DELAY);
 
-  int count = 0;
+  int32_t count = 0;
   app_peer_handle_t current_peer = peers_handle->list.head;
   while (current_peer != NULL) {
     count++;

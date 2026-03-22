@@ -10,10 +10,10 @@ static const char *BASE_TAG = "NETWORK:MESSAGES";
 
 // if the to mac address is not provided, it will be set to the
 // broadcast address.
-esp_err_t app_message_init(app_message_handle_t *message_ptr,
-                           app_message_type_t type, int length,
-                           network_mac_address_t from_mac_address,
-                           network_mac_address_t to_mac_address) {
+esp_err_t protocol_message_init(protocol_message_handle_t *message_ptr,
+                                protocol_message_type_t type, int32_t length,
+                                protocol_mac_address_t from_mac_address,
+                                protocol_mac_address_t to_mac_address) {
 
   // from mac address is required
   if (from_mac_address == NULL) {
@@ -21,12 +21,12 @@ esp_err_t app_message_init(app_message_handle_t *message_ptr,
   }
 
   // check that the input length doesn't exceed the allowed length
-  if (length < 0 || length > APP_MESSAGE_BODY_MAX_LENGTH) {
+  if (length < 0 || length > PROTOCOL_MESSAGE_BODY_MAX_LENGTH) {
     return ESP_ERR_INVALID_ARG;
   }
 
-  app_message_handle_t message =
-      (app_message_handle_t)malloc(sizeof(app_message_t));
+  protocol_message_handle_t message =
+      (protocol_message_handle_t)malloc(sizeof(protocol_message_t));
   if (message == NULL) {
     return ESP_ERR_NO_MEM;
   }
@@ -48,15 +48,15 @@ esp_err_t app_message_init(app_message_handle_t *message_ptr,
   message->header.uuid[7] = (uint8_t)(rng & 0xFF);
 
   memcpy(message->header.from_mac_address, from_mac_address,
-         sizeof(network_mac_address_t));
+         sizeof(protocol_mac_address_t));
 
   if (to_mac_address != NULL) {
     memcpy(message->header.to_mac_address, to_mac_address,
-           sizeof(network_mac_address_t));
+           sizeof(protocol_mac_address_t));
   } else {
     memcpy(message->header.to_mac_address,
            NETWORK_MESSAGE_BROADCAST_MAC_ADDRESS,
-           sizeof(network_mac_address_t));
+           sizeof(protocol_mac_address_t));
   }
 
   switch (type) {
@@ -80,22 +80,23 @@ esp_err_t app_message_init(app_message_handle_t *message_ptr,
   return ESP_OK;
 }
 
-esp_err_t app_message_init_text(app_message_handle_t *message_ptr, char *value,
-                                network_mac_address_t from_mac_address,
-                                network_mac_address_t to_mac_address) {
+esp_err_t protocol_message_init_text(protocol_message_handle_t *message_ptr,
+                                     char *value,
+                                     protocol_mac_address_t from_mac_address,
+                                     protocol_mac_address_t to_mac_address) {
   esp_err_t ret = ESP_OK;
 
-  int length = (strlen(value) + 1) * sizeof(char);
+  int32_t length = (strlen(value) + 1) * sizeof(char);
 
-  ret = app_message_init(message_ptr, MESSAGE_TYPE_TEXT, length,
-                         from_mac_address, to_mac_address);
+  ret = protocol_message_init(message_ptr, MESSAGE_TYPE_TEXT, length,
+                              from_mac_address, to_mac_address);
   if (ret != ESP_OK) {
     return ret;
   }
 
   (*message_ptr)->text.value = (char *)malloc((*message_ptr)->header.length);
   if ((*message_ptr)->text.value == NULL) {
-    app_message_free(*message_ptr);
+    protocol_message_free(*message_ptr);
     return ESP_ERR_NO_MEM;
   }
 
@@ -104,14 +105,15 @@ esp_err_t app_message_init_text(app_message_handle_t *message_ptr, char *value,
   return ESP_OK;
 }
 
-esp_err_t app_message_init_heartbeat(app_message_handle_t *message_ptr,
-                                     char *from_name,
-                                     network_mac_address_t from_mac_address) {
+esp_err_t
+protocol_message_init_heartbeat(protocol_message_handle_t *message_ptr,
+                                char *from_name,
+                                protocol_mac_address_t from_mac_address) {
   esp_err_t ret = ESP_OK;
 
-  int length = (strlen(from_name) + 1) * sizeof(char);
-  ret = app_message_init(message_ptr, MESSAGE_TYPE_HEARTBEAT, length,
-                         from_mac_address, NULL);
+  int32_t length = (strlen(from_name) + 1) * sizeof(char);
+  ret = protocol_message_init(message_ptr, MESSAGE_TYPE_HEARTBEAT, length,
+                              from_mac_address, NULL);
   if (ret != ESP_OK) {
     return ret;
   }
@@ -119,7 +121,7 @@ esp_err_t app_message_init_heartbeat(app_message_handle_t *message_ptr,
   (*message_ptr)->heartbeat.from_name =
       (char *)malloc((*message_ptr)->header.length);
   if ((*message_ptr)->heartbeat.from_name == NULL) {
-    app_message_free(*message_ptr);
+    protocol_message_free(*message_ptr);
     return ESP_ERR_NO_MEM;
   }
 
@@ -128,21 +130,21 @@ esp_err_t app_message_init_heartbeat(app_message_handle_t *message_ptr,
   return ESP_OK;
 }
 
-esp_err_t app_message_init_audio(app_message_handle_t *message_ptr,
-                                 uint8_t *value, int length,
-                                 network_mac_address_t from_mac_address,
-                                 network_mac_address_t to_mac_address) {
+esp_err_t protocol_message_init_audio(protocol_message_handle_t *message_ptr,
+                                      uint8_t *value, int32_t length,
+                                      protocol_mac_address_t from_mac_address,
+                                      protocol_mac_address_t to_mac_address) {
   esp_err_t ret = ESP_OK;
 
-  ret = app_message_init(message_ptr, MESSAGE_TYPE_AUDIO, length,
-                         from_mac_address, to_mac_address);
+  ret = protocol_message_init(message_ptr, MESSAGE_TYPE_AUDIO, length,
+                              from_mac_address, to_mac_address);
   if (ret != ESP_OK) {
     return ret;
   }
 
   (*message_ptr)->audio.value = (uint8_t *)malloc(length);
   if ((*message_ptr)->audio.value == NULL) {
-    app_message_free(*message_ptr);
+    protocol_message_free(*message_ptr);
     return ESP_ERR_NO_MEM;
   }
 
@@ -151,7 +153,8 @@ esp_err_t app_message_init_audio(app_message_handle_t *message_ptr,
   return ESP_OK;
 }
 
-esp_err_t app_message_set_payload(app_message_handle_t message, void *value) {
+esp_err_t protocol_message_set_payload(protocol_message_handle_t message,
+                                       void *value) {
   switch (message->header.type) {
   case MESSAGE_TYPE_TEXT:
     free(message->text.value);
@@ -192,7 +195,7 @@ esp_err_t app_message_set_payload(app_message_handle_t message, void *value) {
   return ESP_OK;
 }
 
-void app_message_free(app_message_handle_t message) {
+void protocol_message_free(protocol_message_handle_t message) {
   switch (message->header.type) {
   case MESSAGE_TYPE_TEXT:
     free(message->text.value);
