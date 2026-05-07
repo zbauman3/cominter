@@ -1,12 +1,11 @@
 #include "esp_log.h"
 #include "esp_random.h"
 #include "esp_timer.h"
-#include <assert.h>
 #include <string.h>
 
 #include "protocols/messages.h"
 
-static const char *BASE_TAG = "NETWORK:MESSAGES";
+static const char *BASE_TAG = "PROTOCOLS:MESSAGES";
 
 // if the to mac address is not provided, it will be set to the
 // broadcast address.
