@@ -1,9 +1,20 @@
+// TEST_MIC_MODE controls what runs at startup:
+//   0 = Normal intercom app (WiFi, peers, messaging, button)
+//   1 = Mic test only (no WiFi, just ADC + button + serial dump)
+//   2 = Mic test WITH WiFi (full app minus button handler, then mic test)
+#define TEST_MIC_MODE 2
+
 #include "driver/gpio.h"
 #include "esp_check.h"
 #include "esp_err.h"
 #include "esp_event.h"
 #include "esp_log.h"
 
+#if TEST_MIC_MODE > 0
+#include "test_mic/test_mic.h"
+#endif
+
+#if TEST_MIC_MODE != 1
 #include "application/device_info.h"
 #include "application/message_handler.h"
 #include "application/peers.h"
@@ -13,8 +24,11 @@
 #include "network/udp.h"
 #include "network/wifi.h"
 #include "storage/nvs.h"
+#endif
 
 static char *TAG = "APP_MAIN";
+
+#if TEST_MIC_MODE != 1
 
 #define TALK_BTN_PIN GPIO_NUM_35
 
@@ -65,9 +79,14 @@ esp_err_t init_app() {
                     init_app_cleanup, TAG,
                     "Failed to initialize app message handler");
 
+  // Skip the button handler in mode 2 — the mic test needs to poll
+  // this same pin, and the ISR would fire and try to send messages
+  // every time you press it.
+#if TEST_MIC_MODE != 2
   ESP_GOTO_ON_ERROR(io_inputs_init(&io_inputs_handle, TALK_BTN_PIN,
                                    device_info_handle, app_queues_handle),
                     init_app_cleanup, TAG, "Failed to initialize IO inputs");
+#endif
 
   ESP_LOGI(TAG, "Device name: %s", device_info_handle->name);
   ESP_LOGI(
@@ -81,8 +100,24 @@ init_app_cleanup:
   return ret;
 }
 
+#endif
+
 void app_main(void) {
+#if TEST_MIC_MODE == 1
+  // Mic test only — no WiFi, no queues, no peers.
+  esp_err_t err = test_mic_run();
+#elif TEST_MIC_MODE == 2
+  // Full app (WiFi, peers, heartbeats) + mic test.
+  // This lets you hear the WiFi radio's effect on the audio.
   esp_err_t err = init_app();
+  if (err == ESP_OK) {
+    ESP_LOGI(TAG, "App running with WiFi. Starting mic test...");
+    err = test_mic_run();
+  }
+#else
+  esp_err_t err = init_app();
+#endif
+
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Error (%s) initializing app. Restarting...",
              esp_err_to_name(err));
