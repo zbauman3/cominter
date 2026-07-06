@@ -76,11 +76,19 @@ static const char *TAG = "TEST_MIC";
 // Good enough for voice (covers frequencies up to 4 kHz per Nyquist).
 #define SAMPLE_RATE_HZ 8000
 
-// Oversampling factor. Instead of sampling once per output sample, we run the
-// ADC ADC_OVERSAMPLE times faster (8 kHz * 4 = 32 kHz) and average each group
-// of ADC_OVERSAMPLE raw readings into one 8 kHz output sample. Averaging N
-// independent readings cuts random noise by √N (4x averaging = 6 dB quieter).
+// The ESP32's continuous ADC has a HARDWARE minimum sample rate of ~20 kHz, so
+// we can't clock it at our 8 kHz audio rate directly. Instead we run it at
+// 8 kHz * ADC_OVERSAMPLE (= 32 kHz, safely above the floor) and reduce back to
+// 8 kHz in software. ADC_OVERSAMPLE must keep 8kHz*N >= 20kHz, so 4 is the
+// practical minimum — don't lower it or adc_continuous_config() will reject it.
 #define ADC_OVERSAMPLE     4
+
+// How each group of ADC_OVERSAMPLE readings becomes one output sample:
+//   1 = average them → cuts random noise by √N (6 dB at 4x). Normal operation.
+//   0 = keep just one, discard the rest → NO software noise reduction, the
+//       honest view of the raw hardware noise floor. Use this while improving
+//       the analog circuit; set back to 1 when you want clean audio again.
+#define ADC_AVERAGE        1
 
 // ADC_FRAME_SAMPLES : how many raw ADC readings we pull per read() call.
 // ADC_FRAME_BYTES   : the same in bytes. On the ESP32 each ADC-DMA reading is
@@ -165,6 +173,31 @@ static biquad_t biquad_lpf(float fc, float fs) {
       .b2 = (1.0f - cw) * 0.5f / a0,
       .a1 = -2.0f * cw / a0,
       .a2 = (1.0f - alpha) / a0,
+  };
+  return c;
+}
+
+// Compute coefficients for a first-order-style HIGH-SHELF at corner fc with a
+// gain of gain_db decibels applied to everything above the shelf. We use this
+// as a "de-emphasis" stage: the analog anti-alias RC in front of the ADC
+// (R2=1K, C1=100nF) is a low-pass with its pole at 1/(2*pi*1k*100nF) ≈ 1.6 kHz,
+// so it quietly rolls off treble (~-8.6 dB at 4 kHz) and makes voice sound dull.
+// A high-shelf that lifts the same band by the inverse amount cancels that
+// rolloff and restores consonant clarity. This is the RBJ cookbook high-shelf
+// (a biquad); S=1 is the gentlest slope that doesn't overshoot into a peak.
+static biquad_t biquad_hshelf(float fc, float gain_db, float fs) {
+  float A  = powf(10.0f, gain_db / 40.0f);         // sqrt of linear gain
+  float w0 = 2.0f * 3.14159265358979f * fc / fs;
+  float cw = cosf(w0), sw = sinf(w0);
+  float alpha = sw * 0.5f * sqrtf((A + 1.0f / A) * (1.0f / 1.0f - 1.0f) + 2.0f);
+  float twoSqrtAalpha = 2.0f * sqrtf(A) * alpha;
+  float a0 = (A + 1.0f) - (A - 1.0f) * cw + twoSqrtAalpha;  // normalization divisor
+  biquad_t c = {
+      .b0 =        A * ((A + 1.0f) + (A - 1.0f) * cw + twoSqrtAalpha) / a0,
+      .b1 = -2.0f * A * ((A - 1.0f) + (A + 1.0f) * cw)                / a0,
+      .b2 =        A * ((A + 1.0f) + (A - 1.0f) * cw - twoSqrtAalpha) / a0,
+      .a1 =  2.0f *    ((A - 1.0f) - (A + 1.0f) * cw)                / a0,
+      .a2 =           ((A + 1.0f) - (A - 1.0f) * cw - twoSqrtAalpha) / a0,
   };
   return c;
 }
@@ -359,11 +392,14 @@ esp_err_t test_mic_run(void) {
     }
 
     // samples_captured : how many finished 8 kHz output samples we have.
-    // oversample_acc/count : running sum + counter for the 4-reading average
-    // that produces each output sample.
+    // oversample_count : position within the current group of ADC_OVERSAMPLE
+    //   readings. oversample_acc : running sum for the average (only needed
+    //   when ADC_AVERAGE is on).
     int samples_captured = 0;
-    int32_t oversample_acc = 0;
     int oversample_count = 0;
+#if ADC_AVERAGE
+    int32_t oversample_acc = 0;
+#endif
 
     adc_continuous_start(adc_handle);  // hardware begins filling the DMA ring
 
@@ -381,6 +417,7 @@ esp_err_t test_mic_run(void) {
         // Skip malformed readings or any stray reading from another channel.
         if (!adc_frame[j].valid || adc_frame[j].channel != MIC_TEST_ADC_CHANNEL) continue;
 
+#if ADC_AVERAGE
         // Accumulate; every ADC_OVERSAMPLE readings, emit one averaged sample.
         oversample_acc += (int32_t)adc_frame[j].raw_data;
         if (++oversample_count == ADC_OVERSAMPLE) {
@@ -388,6 +425,14 @@ esp_err_t test_mic_run(void) {
           oversample_acc = 0;
           oversample_count = 0;
         }
+#else
+        // Raw mode: keep the first reading of each group, discard the other
+        // (ADC_OVERSAMPLE-1). No averaging → the ADC's true noise passes through.
+        if (oversample_count == 0) {
+          sample_buffer[samples_captured++] = (uint16_t)adc_frame[j].raw_data;
+        }
+        if (++oversample_count == ADC_OVERSAMPLE) oversample_count = 0;
+#endif
       }
     }
 
@@ -405,19 +450,35 @@ esp_err_t test_mic_run(void) {
     //      section is run forward AND backward. This cancels phase distortion
     //      (voice stays natural) and doubles the effective rolloff to 4th
     //      order / 24 dB per octave.
-    //   2. High-pass @ 300 Hz kills the low-frequency WiFi baseline drift.
-    //   3. Low-pass @ 3400 Hz trims hiss above the voice band
-    //      (classic 300–3400 Hz telephony passband).
-    //   4. Noise gate ducks the residual WiFi hum between words.
+    //   2. De-emphasis high-shelf undoes the analog anti-alias RC's treble
+    //      rolloff (~1.6 kHz pole, -8.6 dB @ 4 kHz), restoring consonant
+    //      clarity so voice sounds crisp instead of muffled.
+    //   3. High-pass @ 90 Hz kills sub-audible DC drift/rumble. Kept gentle
+    //      because the analog preamp already rolls off below ~160 Hz — no need
+    //      to duplicate it in software and lose voice warmth.
+    //   4. Low-pass @ 3600 Hz trims hiss above the voice band AND bounds the
+    //      de-emphasis boost so it can't amplify near-Nyquist noise.
+    //   5. Noise gate ducks any residual hum between words.
     //
     // Everything is re-centered around MEASURED_BIAS on the way out.
+    //
+    // TUNING — the hardware noise is cleaned up, so this is about voice QUALITY.
+    //   * Voice too dull/muffled:  raise DEEMPH_GAIN_DB (8 → 10..12).
+    //   * Voice too bright/hissy:  lower DEEMPH_GAIN_DB (8 → 4..6).
+    //   * More low-end cut (rumble): raise HPF_CUTOFF_HZ (90 → 200..300).
+    //   * More high-end cut (hiss):  lower LPF_CUTOFF_HZ (3600 → 3000).
+    //   * Squelch hum between words: set GATE_ENABLED 1 (start gentle).
     #define DSP_ENABLED     1
-    #define HPF_CUTOFF_HZ   300.0f
-    #define LPF_CUTOFF_HZ   3400.0f
+    #define DEEMPH_ENABLED  1
+    #define DEEMPH_CORNER_HZ 1600.0f // matches the analog RC pole (R2*C1)
+    #define DEEMPH_GAIN_DB   8.0f    // net treble lift restoring the RC rolloff
+    #define HPF_CUTOFF_HZ   90.0f    // gentle: sub-audible cleanup; HW owns <160Hz
+    #define LPF_CUTOFF_HZ   3600.0f  // trims top + bounds the de-emphasis boost
     // Noise gate — set THRESHOLD just above the noise floor (in post-filter
     // ADC counts). FLOOR is the residual gain while gated (0.0 = full mute,
     // ~0.1 = -20 dB duck). Attack fast so speech onsets pass; release slow.
-    #define GATE_ENABLED    1
+    // Left OFF for now — the hardware fix should make it unnecessary.
+    #define GATE_ENABLED    0
     #define GATE_THRESHOLD  45.0f
     #define GATE_FLOOR      0.08f
     #define GATE_KNEE       35.0f    // soft-knee width below threshold (counts)
@@ -426,19 +487,27 @@ esp_err_t test_mic_run(void) {
     #define GATE_SMOOTH     0.030f   // gain slew (~4 ms, click-free)
     #if DSP_ENABLED
     {
-      // Build the two filters once; we reuse the same coefficients for both
-      // the forward and backward passes (with fresh state each time).
+      // Build the filters once; we reuse the same coefficients for both the
+      // forward and backward passes (with fresh state each time).
       biquad_t hpf = biquad_hpf(HPF_CUTOFF_HZ, (float)SAMPLE_RATE_HZ);
       biquad_t lpf = biquad_lpf(LPF_CUTOFF_HZ, (float)SAMPLE_RATE_HZ);
+      // The shelf runs in BOTH passes, so each pass applies half the total boost
+      // (in dB); the two passes multiply to give the full DEEMPH_GAIN_DB, while
+      // the forward+backward symmetry keeps it perfectly zero-phase.
+      biquad_t shelf = biquad_hshelf(DEEMPH_CORNER_HZ, DEEMPH_GAIN_DB * 0.5f,
+                                     (float)SAMPLE_RATE_HZ);
 
-      // --- Forward pass: walk the buffer front-to-back through HPF then LPF ---
+      // --- Forward pass: walk the buffer front-to-back through the filters ---
       // Each sample is centered (subtract bias), filtered, then re-centered
       // (add bias back) and clamped before being written in place.
-      biquad_state_t hs = {0}, ls = {0};  // {0} = clear the filter's history
+      biquad_state_t hs = {0}, ls = {0}, ss = {0};  // {0} = clear filter history
       for (int i = 0; i < TOTAL_SAMPLES; i++) {
         float x = (float)sample_buffer[i] - MEASURED_BIAS;
         x = biquad_process(&hpf, &hs, x);
         x = biquad_process(&lpf, &ls, x);
+#if DEEMPH_ENABLED
+        x = biquad_process(&shelf, &ss, x);
+#endif
         sample_buffer[i] = clamp_adc((int)(x + 0.5f) + MEASURED_BIAS);
       }
       // --- Backward pass: walk the SAME data back-to-front through the SAME ---
@@ -449,15 +518,22 @@ esp_err_t test_mic_run(void) {
       // it's only possible because we have the entire recording in memory. As a
       // bonus the response is applied twice, doubling the steepness to ~24
       // dB/octave (effectively a 4th-order band-pass).
-      biquad_state_t hs2 = {0}, ls2 = {0};
+      biquad_state_t hs2 = {0}, ls2 = {0}, ss2 = {0};
       for (int i = TOTAL_SAMPLES - 1; i >= 0; i--) {
         float x = (float)sample_buffer[i] - MEASURED_BIAS;
         x = biquad_process(&hpf, &hs2, x);
         x = biquad_process(&lpf, &ls2, x);
+#if DEEMPH_ENABLED
+        x = biquad_process(&shelf, &ss2, x);
+#endif
         sample_buffer[i] = clamp_adc((int)(x + 0.5f) + MEASURED_BIAS);
       }
       ESP_LOGI(TAG, "Band-pass applied: %.0f-%.0f Hz (zero-phase, 4th order)",
                (double)HPF_CUTOFF_HZ, (double)LPF_CUTOFF_HZ);
+#if DEEMPH_ENABLED
+      ESP_LOGI(TAG, "De-emphasis applied: +%.1f dB shelf @ %.0f Hz (treble restore)",
+               (double)DEEMPH_GAIN_DB, (double)DEEMPH_CORNER_HZ);
+#endif
 
 #if GATE_ENABLED
       // --- Noise gate (soft-knee downward expander) ---
@@ -508,6 +584,9 @@ esp_err_t test_mic_run(void) {
                (double)GATE_THRESHOLD, (double)GATE_KNEE, (double)GATE_FLOOR);
 #endif
     }
+    #else
+    ESP_LOGI(TAG, "DSP disabled — raw passthrough (no filter, no gate, averaging=%s)",
+             ADC_AVERAGE ? "on" : "off");
     #endif // DSP_ENABLED
 
     // ---- Step 5: Playback phase — DAC takes I2S0 DMA ----
