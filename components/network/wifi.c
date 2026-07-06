@@ -150,6 +150,15 @@ esp_err_t network_wifi_init(network_wifi_handle_t *wifi_handle_ptr,
   ESP_GOTO_ON_ERROR(esp_wifi_start(), network_wifi_init_error, TAG,
                     "Failed to start WiFi");
 
+  // Disable Wi-Fi modem sleep. By default the radio uses WIFI_PS_MIN_MODEM
+  // power save, waking every beacon/DTIM interval (~102ms). Each wake draws a
+  // current burst that couples into the analog audio signals, showing up as
+  // periodic ~10Hz noise transients. WIFI_PS_NONE keeps the radio powered
+  // continuously so its current draw is steady instead of bursty.
+  // Trade-off: higher idle power — fine for a mains-powered intercom.
+  ESP_GOTO_ON_ERROR(esp_wifi_set_ps(WIFI_PS_NONE), network_wifi_init_error, TAG,
+                    "Failed to disable WiFi power save");
+
   *wifi_handle_ptr = wifi_handle;
   return ESP_OK;
 
