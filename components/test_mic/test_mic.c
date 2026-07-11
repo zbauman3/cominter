@@ -33,6 +33,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "test_mic/test_mic.h"
@@ -97,12 +98,13 @@ static const char *TAG = "TEST_MIC";
 #define ADC_FRAME_SAMPLES  256            // ADC results per read call
 #define ADC_FRAME_BYTES    (ADC_FRAME_SAMPLES * 4)  // ESP32: 4 bytes per ADC result
 
-// How long to record, in seconds.
-#define CAPTURE_DURATION_SEC 5
+// How long to record, in milliseconds. Kept short (2.5s) while debugging so
+// each capture is a small, quick-to-inspect chunk.
+#define CAPTURE_DURATION_MS 2500
 
 // Total number of samples we'll capture.
-// 8000 * 5 = 40,000 samples.
-#define TOTAL_SAMPLES (SAMPLE_RATE_HZ * CAPTURE_DURATION_SEC)
+// 8000 * 2.5s = 20,000 samples.
+#define TOTAL_SAMPLES (SAMPLE_RATE_HZ * CAPTURE_DURATION_MS / 1000)
 
 // ---- Sample Buffer ----
 // Each sample is 12-bit (0–4095), stored in a uint16_t.
@@ -240,6 +242,41 @@ static void wait_for_button_press(void) {
   vTaskDelay(pdMS_TO_TICKS(50));
 }
 
+// ---- Helper: dump a sample buffer over the serial log ----
+// Prints one labeled block that samples_to_wav.py can parse:
+//
+//   --- BEGIN SAMPLES <label> ---
+//   sample_rate=8000,count=20000,bits=12,bias=2087
+//   <comma-separated 12-bit values, wrapped across lines>
+//   --- END SAMPLES <label> ---
+//
+// We use raw printf() (not ESP_LOGI) so the value lines have NO log prefix or
+// timestamp — the Python parser expects clean integers between the markers.
+// The label ("filtered") lets the script find the block. fflush at the end
+// pushes the last line out the UART before we return.
+//
+// WATCHDOG SAFETY: the console printf busy-waits on the UART TX FIFO, and this
+// dump is large (~20k values ≈ 120 KB, ~10 s at 115200 baud). Left uninterrupted
+// that starves the idle task on this core and trips the Task Watchdog. So every
+// DUMP_YIELD_EVERY samples we vTaskDelay(1): that hands the CPU to the idle task
+// (feeding the WDT) and gives the UART time to drain, while keeping each blocking
+// burst (~a few KB) far below the WDT timeout.
+#define DUMP_YIELD_EVERY 512
+static void dump_samples(const char *label, const uint16_t *samples, int count, int bias) {
+  printf("--- BEGIN SAMPLES %s ---\n", label);
+  printf("sample_rate=%d,count=%d,bits=12,bias=%d\n", SAMPLE_RATE_HZ, count, bias);
+  for (int i = 0; i < count; i++) {
+    printf("%u,", (unsigned)samples[i]);
+    if ((i % 20) == 19) printf("\n");  // wrap so no single line gets huge
+    if ((i % DUMP_YIELD_EVERY) == (DUMP_YIELD_EVERY - 1)) {
+      fflush(stdout);               // push what we have, then let others run
+      vTaskDelay(1);                // yield: feeds the watchdog, drains the FIFO
+    }
+  }
+  printf("\n--- END SAMPLES %s ---\n", label);
+  fflush(stdout);
+}
+
 // ---- Helper: play samples through the DAC via DMA ----
 // Streams the captured buffer out the DAC. Two things worth understanding:
 //
@@ -291,8 +328,8 @@ static void play_samples(dac_continuous_handle_t dac, uint16_t *samples, int cou
 // ---- Main test function ----
 esp_err_t test_mic_run(void) {
   ESP_LOGI(TAG, "=== Microphone ADC Capture Test ===");
-  ESP_LOGI(TAG, "Pin: GPIO%d (A4), Sample rate: %d Hz, Duration: %d sec",
-           MIC_TEST_ADC_PIN, SAMPLE_RATE_HZ, CAPTURE_DURATION_SEC);
+  ESP_LOGI(TAG, "Pin: GPIO%d (A4), Sample rate: %d Hz, Duration: %.1f sec",
+           MIC_TEST_ADC_PIN, SAMPLE_RATE_HZ, CAPTURE_DURATION_MS / 1000.0);
   ESP_LOGI(TAG, "Total samples: %d (%d KB buffer)",
            TOTAL_SAMPLES, (int)(TOTAL_SAMPLES * sizeof(uint16_t) / 1024));
 
@@ -373,7 +410,7 @@ esp_err_t test_mic_run(void) {
 
   // ---- Step 4: Main loop — wait for button, capture, play, repeat ----
   while (true) {
-    ESP_LOGI(TAG, "Press the button to start a %d-second capture...", CAPTURE_DURATION_SEC);
+    ESP_LOGI(TAG, "Press the button to start a %.1f-second capture...", CAPTURE_DURATION_MS / 1000.0);
     wait_for_button_press();
     ESP_LOGI(TAG, "Capturing %d samples at %d Hz...", TOTAL_SAMPLES, SAMPLE_RATE_HZ);
 
@@ -607,6 +644,11 @@ esp_err_t test_mic_run(void) {
 
     dac_continuous_disable(dac_handle);
     dac_continuous_del_channels(dac_handle);  // releases I2S0
+
+    // ---- Step 6: Dump the filtered buffer for offline listening ----
+    // Paste the whole serial log into samples_to_wav.py to turn it into a .wav.
+    ESP_LOGI(TAG, "Dumping filtered samples for samples_to_wav.py...");
+    dump_samples("filtered", sample_buffer, TOTAL_SAMPLES, MEASURED_BIAS);
 
     ESP_LOGI(TAG, "Done! Press the button again for another capture.");
   }
