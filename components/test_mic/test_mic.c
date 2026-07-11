@@ -2,28 +2,52 @@
 // test_mic.c — Standalone microphone capture → filter → speaker playback test
 //
 // This is the hardware bring-up test for the intercom's analog audio path.
+// It has ZERO dependencies on the rest of the cominter codebase: no FreeRTOS
+// tasks, queues, WiFi, or application code. It's meant to be called directly
+// from app_main() to exercise and tune the analog front-end in isolation.
+//
 // One press of the talk button runs a full record-then-play cycle:
 //
-//   1. Button (GPIO35) is polled until pressed.
-//   2. The mic signal on GPIO37 (A4) is captured for 5 seconds at 8 kHz
-//      using the ADC in DMA "continuous" mode, oversampled 4x for less noise.
-//   3. The captured buffer is cleaned up offline with a DSP chain:
-//      a zero-phase band-pass filter (300–3400 Hz) plus a noise gate.
+//   1. Button (GPIO35) is polled until pressed (Step 1 sets it up, Step 4
+//      waits on it each loop).
+//   2. The mic signal on GPIO37 (A4) is captured for 2.5 seconds at 8 kHz
+//      using the ADC in DMA "continuous" mode, oversampled 4x to average out
+//      random noise (Step 4a).
+//   3. The captured buffer is cleaned up offline with a DSP chain (Step 4b):
+//      a zero-phase band-pass (90–3600 Hz) plus a de-emphasis treble shelf,
+//      with an optional noise gate (currently disabled).
 //   4. The cleaned audio is played back out the DAC on GPIO26 (A1), which
-//      drives an LM386 amplifier + speaker.
-//   5. Loop back to step 1.
+//      drives an LM386 amplifier + speaker (Step 5).
+//   5. The filtered buffer is dumped over the serial log so samples_to_wav.py
+//      can turn it into a .wav for offline listening (Step 6).
+//   6. Loop back to step 1.
 //
-// Signal path summary:
-//   mic → MCP6002 preamp (~200x) → GPIO37/ADC1 → [this code] → GPIO26/DAC
-//       → LM386 amp → speaker
+// ---- Analog signal path (schematic, "Mic & Preamp" sheet) ----
+//   MK1 electret (AOM4544P2R), biased through R3 (2.2 kΩ) from +3.3V_CLEAN
+//     → C7 (10 µF) AC-coupling into the amplifier
+//     → MCP6002 dual op-amp:
+//          U1A = unity-gain buffer that generates the mid-rail bias reference
+//                from the R7/R8 divider (100 kΩ/100 kΩ off +3.3V_CLEAN ≈ 1.65V,
+//                filtered by C9). Everything downstream swings around this.
+//          U1B = non-inverting gain stage, ~100x (≈40 dB): gain = 1 + R6/R1
+//                = 1 + 100 kΩ/1 kΩ. R1·C2 (1 kΩ · 1 µF) sets a ~160 Hz low
+//                corner, so the preamp already rolls off below ~160 Hz; C4
+//                (100 pF) across R6 tames HF above ~16 kHz.
+//     → R2 (1 kΩ) + C1 (100 nF) anti-alias RC low-pass, pole ≈ 1.6 kHz. This
+//        gentle treble rolloff (~-8.6 dB @ 4 kHz) is what Step 4b's de-emphasis
+//        high-shelf inverts to restore consonant clarity.
+//     → GPIO37 / ADC1_CH1  ── [this code] ──  GPIO26 / DAC1
+//     → LM386 amplifier → speaker
+//
+// ---- Power (schematic, "Power Filter" sheet) ----
+//   +3.3V → R9 (100 Ω) → +3.3V_CLEAN, filtered by C10 (100 nF) + C11 (100 µF).
+//   The whole analog front-end (mic bias + both op-amp stages, VDD decoupled by
+//   C5/C6) runs off +3.3V_CLEAN rather than the raw 3.3V rail, to keep digital
+//   and WiFi switching noise off the sensitive bias and supply nodes.
 //
 // Key hardware constraint (see Step 2): on the ESP32 the ADC-DMA and DAC-DMA
 // engines both live on the I2S0 peripheral, so only ONE can be open at a time.
 // Capture and playback are sequential, so we open/close each around its phase.
-//
-// This file has ZERO dependencies on the rest of the cominter codebase.
-// It doesn't use FreeRTOS tasks, queues, WiFi, or any application code.
-// It's meant to be called directly from app_main() for hardware testing.
 // =============================================================================
 
 #include "driver/gpio.h"
@@ -68,7 +92,7 @@ static const char *TAG = "TEST_MIC";
 //   - DAC_WRITE_CHUNK  : how many samples we hand to dac_continuous_write()
 //     per call. At 8 kHz, 256 samples ≈ 32 ms of audio per write.
 #define DAC_DMA_BUF_SIZE     1024                 // bytes per DMA descriptor
-#define DAC_DMA_DESC_NUM     8                    // number of DMA descriptors (~4096 samples total)
+#define DAC_DMA_DESC_NUM     8                    // # of DMA descriptors: 8*1024 = 8192 bytes ≈ 8192 8-bit samples ≈ 1.0s @ 8kHz in flight
 #define DAC_WRITE_CHUNK      256                  // 8-bit samples per write call (~32ms)
 
 // ---- Capture Parameters ----
@@ -79,9 +103,10 @@ static const char *TAG = "TEST_MIC";
 
 // The ESP32's continuous ADC has a HARDWARE minimum sample rate of ~20 kHz, so
 // we can't clock it at our 8 kHz audio rate directly. Instead we run it at
-// 8 kHz * ADC_OVERSAMPLE (= 32 kHz, safely above the floor) and reduce back to
-// 8 kHz in software. ADC_OVERSAMPLE must keep 8kHz*N >= 20kHz, so 4 is the
-// practical minimum — don't lower it or adc_continuous_config() will reject it.
+// 8 kHz * ADC_OVERSAMPLE (= 32 kHz, safely above the floor) and decimate back
+// to 8 kHz in software. ADC_OVERSAMPLE must keep 8kHz*N >= 20kHz (so N >= 3);
+// 4 is the smallest power-of-two that clears it and gives a clean 4:1
+// decimation. Don't drop below 3 or adc_continuous_config() will reject it.
 #define ADC_OVERSAMPLE     4
 
 // How each group of ADC_OVERSAMPLE readings becomes one output sample:
@@ -108,7 +133,7 @@ static const char *TAG = "TEST_MIC";
 
 // ---- Sample Buffer ----
 // Each sample is 12-bit (0–4095), stored in a uint16_t.
-// Total memory: 40,000 * 2 bytes = 80 KB.
+// Total memory: TOTAL_SAMPLES (20,000) * 2 bytes = ~40 KB.
 // The ESP32 has ~320 KB of DRAM, so this fits comfortably.
 static uint16_t sample_buffer[TOTAL_SAMPLES];
 
@@ -179,18 +204,22 @@ static biquad_t biquad_lpf(float fc, float fs) {
   return c;
 }
 
-// Compute coefficients for a first-order-style HIGH-SHELF at corner fc with a
-// gain of gain_db decibels applied to everything above the shelf. We use this
-// as a "de-emphasis" stage: the analog anti-alias RC in front of the ADC
-// (R2=1K, C1=100nF) is a low-pass with its pole at 1/(2*pi*1k*100nF) ≈ 1.6 kHz,
-// so it quietly rolls off treble (~-8.6 dB at 4 kHz) and makes voice sound dull.
-// A high-shelf that lifts the same band by the inverse amount cancels that
-// rolloff and restores consonant clarity. This is the RBJ cookbook high-shelf
-// (a biquad); S=1 is the gentlest slope that doesn't overshoot into a peak.
+// Compute coefficients for a HIGH-SHELF at corner fc that lifts everything above
+// the shelf by gain_db decibels. We use this as a "de-emphasis" stage: the
+// analog anti-alias RC in front of the ADC (R2=1kΩ, C1=100nF on the schematic)
+// is a first-order low-pass with its pole at 1/(2*pi*1k*100nF) ≈ 1.6 kHz, so it
+// quietly rolls off treble (~-8.6 dB at 4 kHz) and makes voice sound dull. A
+// high-shelf that lifts the same band by the inverse amount cancels that rolloff
+// and restores consonant clarity. This is the RBJ audio-EQ-cookbook high-shelf
+// (a biquad); the shelf "slope" parameter S is fixed at 1 here — the gentlest
+// slope that reaches full gain without overshooting into a resonant peak.
 static biquad_t biquad_hshelf(float fc, float gain_db, float fs) {
-  float A  = powf(10.0f, gain_db / 40.0f);         // sqrt of linear gain
-  float w0 = 2.0f * 3.14159265358979f * fc / fs;
+  float A  = powf(10.0f, gain_db / 40.0f);         // sqrt of the linear gain (RBJ's A)
+  float w0 = 2.0f * 3.14159265358979f * fc / fs;   // corner freq in radians/sample
   float cw = cosf(w0), sw = sinf(w0);
+  // RBJ shelf alpha = (sin w0 / 2) * sqrt((A + 1/A)(1/S - 1) + 2). With S=1 the
+  // (1/S - 1) term is 0 (written literally as (1/1 - 1)), so this collapses to
+  // (sin w0 / 2) * sqrt(2).
   float alpha = sw * 0.5f * sqrtf((A + 1.0f / A) * (1.0f / 1.0f - 1.0f) + 2.0f);
   float twoSqrtAalpha = 2.0f * sqrtf(A) * alpha;
   float a0 = (A + 1.0f) - (A - 1.0f) * cw + twoSqrtAalpha;  // normalization divisor
@@ -440,7 +469,7 @@ esp_err_t test_mic_run(void) {
 
     adc_continuous_start(adc_handle);  // hardware begins filling the DMA ring
 
-    // Pull frames until we've assembled a full 5 seconds of averaged samples.
+    // Pull frames until we've assembled a full 2.5 seconds of averaged samples.
     while (samples_captured < TOTAL_SAMPLES) {
       // read_parse() blocks until a frame is ready, then decodes the raw DMA
       // words into adc_frame[] (value + channel + valid flag per reading).
@@ -491,8 +520,9 @@ esp_err_t test_mic_run(void) {
     //      rolloff (~1.6 kHz pole, -8.6 dB @ 4 kHz), restoring consonant
     //      clarity so voice sounds crisp instead of muffled.
     //   3. High-pass @ 90 Hz kills sub-audible DC drift/rumble. Kept gentle
-    //      because the analog preamp already rolls off below ~160 Hz — no need
-    //      to duplicate it in software and lose voice warmth.
+    //      because the analog preamp already rolls off below ~160 Hz (set by
+    //      its R1·C2 = 1 kΩ·1 µF gain leg) — no need to duplicate that in
+    //      software and lose voice warmth.
     //   4. Low-pass @ 3600 Hz trims hiss above the voice band AND bounds the
     //      de-emphasis boost so it can't amplify near-Nyquist noise.
     //   5. Noise gate ducks any residual hum between words.
